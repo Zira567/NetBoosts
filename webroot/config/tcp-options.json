@@ -1,0 +1,112 @@
+{
+  "categories": [
+    { "id": "performance", "name": { "es": "Rendimiento", "en": "Performance" }, "icon": "🚀", "options": ["tcp_fastopen", "window_scaling"] },
+    { "id": "low_latency", "name": { "es": "Baja latencia", "en": "Low latency" }, "icon": "🎮", "options": ["ecn", "mtu_probing"] },
+    { "id": "stability", "name": { "es": "Estabilidad", "en": "Stability" }, "icon": "📶", "options": ["sack", "retries1", "retries2", "keepalive"] },
+    { "id": "advanced", "name": { "es": "Avanzado", "en": "Advanced" }, "icon": "⚙", "options": ["rx_buffer", "tx_buffer", "timestamps"] }
+  ],
+  "options": {
+    "congestion_control": {
+      "name": { "es": "Control de congestión", "en": "Congestion control" },
+      "type": "select",
+      "sysctl": "net.ipv4.tcp_congestion_control",
+      "dynamic": true,
+      "global": true
+    },
+    "tcp_fastopen": {
+      "name": { "es": "TCP Fast Open", "en": "TCP Fast Open" },
+      "type": "toggle",
+      "sysctl": "net.ipv4.tcp_fastopen",
+      "onValue": "3",
+      "offValue": "0"
+    },
+    "window_scaling": {
+      "name": { "es": "Window Scaling", "en": "Window Scaling" },
+      "type": "toggle",
+      "sysctl": "net.ipv4.tcp_window_scaling",
+      "onValue": "1",
+      "offValue": "0"
+    },
+    "ecn": {
+      "name": { "es": "ECN", "en": "ECN" },
+      "type": "select",
+      "sysctl": "net.ipv4.tcp_ecn",
+      "values": [
+        { "label": { "es": "Desactivado", "en": "Disabled" }, "value": "0", "hint": { "es": "ECN completamente desactivado.", "en": "ECN completely disabled." } },
+        { "label": { "es": "Predeterminado", "en": "Default" }, "value": "2", "hint": { "es": "Acepta ECN si el peer lo solicita; no lo pide en conexiones salientes.", "en": "Accepts ECN if the peer requests it; doesn't request it on outgoing connections." } },
+        { "label": { "es": "Habilitado", "en": "Enabled" }, "value": "1", "hint": { "es": "Solicita y acepta ECN en ambas direcciones.", "en": "Requests and accepts ECN in both directions." } }
+      ]
+    },
+    "mtu_probing": {
+      "name": { "es": "MTU Probing", "en": "MTU Probing" },
+      "type": "select",
+      "sysctl": "net.ipv4.tcp_mtu_probing",
+      "values": [
+        { "label": { "es": "Desactivado", "en": "Disabled" }, "value": "0" },
+        { "label": { "es": "Automático", "en": "Automatic" }, "value": "1" },
+        { "label": { "es": "Forzado", "en": "Forced" }, "value": "2" }
+      ]
+    },
+    "sack": {
+      "name": { "es": "SACK", "en": "SACK" },
+      "type": "toggle",
+      "sysctl": "net.ipv4.tcp_sack",
+      "onValue": "1",
+      "offValue": "0"
+    },
+    "retries1": {
+      "name": { "es": "Reintentos 1", "en": "Retries 1" },
+      "type": "select",
+      "sysctl": "net.ipv4.tcp_retries1",
+      "values": [
+        { "label": { "es": "Bajo (2)", "en": "Low (2)" }, "value": "2", "hint": { "es": "Avisa antes a la capa de red (ICMP) de una posible pérdida de ruta.", "en": "Notifies the network layer (ICMP) earlier of a possible route loss." } },
+        { "label": { "es": "Normal (3, por defecto)", "en": "Normal (3, default)" }, "value": "3", "hint": { "es": "Valor por defecto del kernel.", "en": "Kernel default value." } },
+        { "label": { "es": "Alto (5)", "en": "High (5)" }, "value": "5", "hint": { "es": "Espera más reintentos antes de reevaluar la ruta.", "en": "Waits for more retries before re-evaluating the route." } }
+      ]
+    },
+    "retries2": {
+      "name": { "es": "Reintentos 2", "en": "Retries 2" },
+      "type": "select",
+      "sysctl": "net.ipv4.tcp_retries2",
+      "values": [
+        { "label": { "es": "Bajo (5)", "en": "Low (5)" }, "value": "5" },
+        { "label": { "es": "Normal (8)", "en": "Normal (8)" }, "value": "8" },
+        { "label": { "es": "Alto (15, por defecto)", "en": "High (15, default)" }, "value": "15" }
+      ]
+    },
+    "keepalive": {
+      "name": { "es": "Keepalive", "en": "Keepalive" },
+      "type": "select",
+      "sysctls": ["net.ipv4.tcp_keepalive_time", "net.ipv4.tcp_keepalive_intvl", "net.ipv4.tcp_keepalive_probes"],
+      "values": [
+        { "label": { "es": "5 min", "en": "5 min" }, "value": "300,75,9" },
+        { "label": { "es": "10 min", "en": "10 min" }, "value": "600,75,9" },
+        { "label": { "es": "30 min", "en": "30 min" }, "value": "1800,75,9" },
+        { "label": { "es": "2 h (por defecto)", "en": "2 h (default)" }, "value": "7200,75,9" }
+      ]
+    },
+    "rx_buffer": {
+      "name": { "es": "RX Buffer", "en": "RX Buffer" },
+      "type": "select",
+      "sysctl": "net.ipv4.tcp_rmem",
+      "format": "triplet",
+      "adaptive": "buffer",
+      "capability_sysctl": "net.core.rmem_max"
+    },
+    "tx_buffer": {
+      "name": { "es": "TX Buffer", "en": "TX Buffer" },
+      "type": "select",
+      "sysctl": "net.ipv4.tcp_wmem",
+      "format": "triplet",
+      "adaptive": "buffer",
+      "capability_sysctl": "net.core.wmem_max"
+    },
+    "timestamps": {
+      "name": { "es": "Timestamps", "en": "Timestamps" },
+      "type": "toggle",
+      "sysctl": "net.ipv4.tcp_timestamps",
+      "onValue": "1",
+      "offValue": "0"
+    }
+  }
+}

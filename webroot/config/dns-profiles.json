@@ -1,0 +1,8 @@
+[
+  { "id": "cloudflare", "name": { "es": "Cloudflare", "en": "Cloudflare" }, "host": "1dot1dot1dot1.cloudflare-dns.com", "icon": "🔵" },
+  { "id": "google", "name": { "es": "Google DNS", "en": "Google DNS" }, "host": "dns.google", "icon": "📍" },
+  { "id": "adguard", "name": { "es": "AdGuard DNS", "en": "AdGuard DNS" }, "host": "dns.adguard.com", "icon": "🟢" },
+  { "id": "nextdns", "name": { "es": "NextDNS", "en": "NextDNS" }, "host": "dns.nextdns.io", "icon": "🎵" },
+  { "id": "quad9", "name": { "es": "Quad9", "en": "Quad9" }, "host": "dns.quad9.net", "icon": "🔒" },
+  { "id": "opendns", "name": { "es": "OpenDNS", "en": "OpenDNS" }, "host": "dns.opendns.com", "icon": "🟠" }
+]

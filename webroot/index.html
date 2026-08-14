@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NetBoost</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="has-nav">
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg></span>
+        <h1 data-i18n="appName">NetBoost</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="langToggle" class="icon-btn" data-i18n-aria="langToggle" aria-label="Cambiar idioma"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.5 3.8 5.7 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.7-3.8-9s1.3-6.5 3.8-9z"/></svg><span id="langLabel">ES</span></button>
+        <button id="themeToggle" class="icon-btn" data-i18n-aria="themeToggle" aria-label="Cambiar tema"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg></button>
+      </div>
+    </header>
+
+    <main>
+      <section id="dashboard" class="panel active">
+        <div class="dash-head">
+          <h2 class="section-title" data-i18n="dashSection">Estado actual</h2>
+          <span class="spinner" id="dashSpinner" hidden aria-hidden="true"></span>
+        </div>
+
+        <div class="dash-section dashboard">
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="dashPreset">Preset TCP</div>
+            <div class="stat-value" id="dashPresetValue">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="statusDnsLabel">DNS privado actual</div>
+            <div class="stat-value" id="dashDnsValue">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="statusCcLabel">Control de congestión TCP</div>
+            <div class="stat-value" id="dashCcValue">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="statusBridgeLabel">Modo bridge</div>
+            <div class="stat-value" id="dashModeValue">—</div>
+          </div>
+        </div>
+
+        <div class="dash-section">
+          <div class="dash-head">
+            <h3 class="section-title" data-i18n="networkPerformance">Rendimiento de red</h3>
+          </div>
+          <div class="netperf-card">
+            <div id="netPerfStatus" class="netperf-status" role="status" aria-live="polite">
+              <p class="netperf-empty" id="netPerfEmpty" data-i18n="networkNotTested">No probado todavía</p>
+              <div class="netperf-testing" id="netPerfTesting" hidden>
+                <span class="spinner" aria-hidden="true"></span>
+                <span data-i18n="networkTesting">Probando conexión…</span>
+              </div>
+              <p class="netperf-error" id="netPerfError" hidden></p>
+              <div class="netperf-results" id="netPerfResults" hidden>
+                <p class="netperf-done" id="netPerfDone" data-i18n="networkDone">Prueba completada</p>
+                <div class="netperf-grid">
+                  <div class="netperf-item">
+                    <div class="netperf-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg><span data-i18n="networkDownload">Descarga</span></div>
+                    <div class="netperf-value" id="netPerfDownload">—</div>
+                  </div>
+                  <div class="netperf-item">
+                    <div class="netperf-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></svg><span data-i18n="networkUpload">Subida</span></div>
+                    <div class="netperf-value" id="netPerfUpload">—</div>
+                  </div>
+                  <div class="netperf-item">
+                    <div class="netperf-label"><span data-i18n="networkPing">Ping</span></div>
+                    <div class="netperf-value" id="netPerfPing">—</div>
+                  </div>
+                  <div class="netperf-item">
+                    <div class="netperf-label"><span data-i18n="networkJitter">Jitter</span></div>
+                    <div class="netperf-value" id="netPerfJitter">—</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button id="netPerfRun" class="btn netperf-btn">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
+              <span id="netPerfRunLabel">Test speed</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="dash-section">
+          <h3 class="section-title" data-i18n="dashModule">Módulo</h3>
+          <div class="dashboard">
+            <div class="stat-card">
+              <div class="stat-label" data-i18n="dashBackup">Respaldo original</div>
+              <div class="stat-value" id="dashBackupValue">—</div>
+            </div>
+            <div class="stat-card dash-actions">
+              <button id="gotoTcp" class="btn btn-ghost" data-i18n="dashGoTcp">Preset TCP</button>
+              <button id="gotoDns" class="btn btn-ghost" data-i18n="dashGoDns">DNS privado</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tcp" class="panel">
+        <div class="panel-head">
+          <h2 class="section-title" data-i18n="tcpTitle">Preset de optimización TCP</h2>
+          <p class="panel-sub" data-i18n="tcpSub">Selecciona un perfil y aplícalo al instante.</p>
+        </div>
+        <div id="tcpList" class="card-grid"></div>
+
+        <p class="section-head section-spacer" data-i18n="congestionHint">Control de congestión (global):</p>
+        <div id="congestionControlRow" class="category congestion-card"></div>
+
+        <p class="section-head section-spacer" data-i18n="advancedHint">Ajustes avanzados por categoría:</p>
+        <div id="tcpCategories" class="category-list"></div>
+      </section>
+
+      <section id="dns" class="panel">
+        <p class="hint" data-i18n="dnsHint">Selecciona un proveedor de DNS privado (DoT):</p>
+        <div id="dnsList" class="card-grid"></div>
+        <div class="custom-row">
+          <input id="customDns" type="text" data-i18n-placeholder="dnsCustomPlaceholder" placeholder="Host DNS personalizado" />
+          <button id="applyCustomDns" class="btn" data-i18n="apply">Aplicar</button>
+        </div>
+      </section>
+
+      <section id="status" class="panel">
+        <div class="status-head">
+          <h2 class="section-title" data-i18n="tabStatus">Estado</h2>
+          <span class="spinner" id="statusSpinner" hidden aria-hidden="true"></span>
+        </div>
+        <div id="statusList" class="status-list"><p class="hint" data-i18n="statusLoading">Cargando estado…</p></div>
+        <button id="refreshStatus" class="btn btn-ghost"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg><span data-i18n="refresh">Actualizar</span></button>
+      </section>
+    </main>
+
+    <nav class="bottomnav" data-i18n-aria="navLabel" aria-label="Navegación principal">
+      <button class="nav-item active" data-tab="dashboard" aria-current="page"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span data-i18n="tabHome">Inicio</span></button>
+      <button class="nav-item" data-tab="tcp"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg><span data-i18n="tabTcp">TCP</span></button>
+      <button class="nav-item" data-tab="dns"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.5 3.8 5.7 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.7-3.8-9s1.3-6.5 3.8-9z"/></svg><span data-i18n="tabDns">DNS</span></button>
+      <button class="nav-item" data-tab="status"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span data-i18n="tabStatus">Estado</span></button>
+    </nav>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

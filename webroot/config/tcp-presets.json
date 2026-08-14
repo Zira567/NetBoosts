@@ -1,0 +1,51 @@
+[
+  {
+    "id": "balanced",
+    "name": { "es": "Balanceado", "en": "Balanced" },
+    "icon": "⚖️",
+    "congestion_control": { "preferred": "cubic", "fallback": "cubic" },
+    "sysctl": {
+      "net.ipv4.tcp_window_scaling": "1",
+      "net.ipv4.tcp_sack": "1"
+    }
+  },
+  {
+    "id": "aggressive",
+    "name": { "es": "Agresivo", "en": "Aggressive" },
+    "icon": "🚀",
+    "congestion_control": { "preferred": "bbr", "fallback": "cubic" },
+    "sysctl": {
+      "net.ipv4.tcp_window_scaling": "1",
+      "net.ipv4.tcp_sack": "1",
+      "net.ipv4.tcp_fastopen": "3"
+    }
+  },
+  {
+    "id": "conservative",
+    "name": { "es": "Conservador", "en": "Conservative" },
+    "icon": "🛡️",
+    "congestion_control": { "preferred": "cubic", "fallback": "cubic" },
+    "sysctl": {
+      "net.ipv4.tcp_window_scaling": "1",
+      "net.ipv4.tcp_sack": "1"
+    }
+  },
+  {
+    "id": "gaming",
+    "name": { "es": "Gaming", "en": "Gaming" },
+    "icon": "🎮",
+    "description": {
+      "es": "Prioriza baja latencia y estabilidad para juegos online.",
+      "en": "Prioritizes low latency and stability for online gaming."
+    },
+    "congestion_control": { "preferred": "bbr", "fallback": "cubic" },
+    "sysctl": {
+      "net.ipv4.tcp_window_scaling": "1",
+      "net.ipv4.tcp_sack": "1",
+      "net.ipv4.tcp_fastopen": "3",
+      "net.ipv4.tcp_ecn": "1",
+      "net.ipv4.tcp_mtu_probing": "1",
+      "net.ipv4.tcp_retries1": "2"
+    }
+  }
+]
