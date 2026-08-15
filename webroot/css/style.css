@@ -54,6 +54,30 @@ body {
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button, input, select, .card, .tab { touch-action: manipulation; }
 
+/* --- Ripple (efecto de onda en elementos interactivos) --- */
+.ripple {
+  position: relative; overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.ripple::after {
+  content: "";
+  position: absolute; left: 50%; top: 50%;
+  width: 0; height: 0;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+}
+.ripple:active::after {
+  animation: ripple-expand 0.45s ease-out forwards;
+}
+@keyframes ripple-expand {
+  0% { width: 0; height: 0; opacity: 0.6; }
+  100% { width: 240px; height: 240px; opacity: 0; }
+}
+[data-theme="light"] .ripple::after { background: rgba(15, 23, 42, 0.18); }
+
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* --- Top bar --- */
@@ -88,13 +112,16 @@ button, input, select, .card, .tab { touch-action: manipulation; }
   flex: 1; min-height: 44px; padding: 10px 6px; border: none; border-radius: var(--radius-sm);
   background: transparent; color: var(--muted); cursor: pointer; font-weight: 600;
   font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 6px;
-  user-select: none; transition: background 0.16s ease, color 0.16s ease;
+  user-select: none; transition: background 0.16s ease, color 0.16s ease, transform 0.12s ease;
 }
-.tab:hover { color: var(--text); }
+.tab:hover { color: var(--text); background: var(--surface-hover); }
+.tab:active { transform: scale(0.96); }
 .tab-icon { font-size: 14px; line-height: 1; }
 .tab.active {
   background: var(--accent); color: var(--accent-contrast);
+  box-shadow: 0 2px 10px var(--accent-soft);
 }
+.tab.active:hover { color: var(--accent-contrast); background: var(--accent-strong); }
 
 main { padding: 18px 16px 32px; }
 .panel { display: none; }
@@ -114,15 +141,19 @@ main { padding: 18px 16px 32px; }
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 18px 12px 16px; text-align: center; cursor: pointer;
   user-select: none;
-  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
 }
-.card:hover { background: var(--surface-hover); border-color: var(--border-strong); }
-.card:active { transform: scale(0.97); }
+.card:hover {
+  background: var(--surface-hover); border-color: var(--border-strong);
+  transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
+}
+.card:active { transform: scale(0.97); box-shadow: none; }
 .card.selected {
   border-color: var(--accent);
   background: var(--accent-soft);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 4px 14px var(--accent-soft);
 }
+.card.selected:hover { background: var(--accent-soft); }
 .card.selected::after {
   content: "\2713";
   position: absolute; top: 10px; right: 10px;
@@ -130,6 +161,12 @@ main { padding: 18px 16px 32px; }
   background: var(--accent-strong); color: var(--accent-contrast);
   font-size: 13px; font-weight: 700; line-height: 22px; text-align: center;
   box-shadow: 0 0 0 3px var(--accent-soft);
+  animation: pop-in 0.25s ease;
+}
+@keyframes pop-in {
+  0% { transform: scale(0.4); opacity: 0; }
+  70% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
 }
 .card.off { border-style: dashed; }
 .card.selected.off {
@@ -160,12 +197,14 @@ main { padding: 18px 16px 32px; }
   min-height: 44px;
   background: var(--accent); border: none; color: var(--accent-contrast); font-weight: 700;
   padding: 12px 20px; border-radius: var(--radius-sm); cursor: pointer; font-size: 14px;
-  transition: filter 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  transition: filter 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
 }
-.btn:hover { filter: brightness(1.05); }
-.btn:active { transform: scale(0.97); }
-.btn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
-.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.btn:hover { filter: brightness(1.07); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.24); }
+.btn:active { transform: scale(0.97); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; box-shadow: none; transform: none; }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); box-shadow: none; }
+.btn-ghost:hover { background: var(--surface-hover); box-shadow: none; }
 .btn-danger { background: var(--danger); color: #ffffff; }
 
 .log-box {
@@ -211,24 +250,27 @@ main { padding: 18px 16px 32px; }
 .option-select {
   min-height: 40px; max-width: 62%; padding: 9px 12px; border-radius: var(--radius-sm);
   border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text);
-  font-size: 13px; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-size: 13px; cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
+.option-select:hover { border-color: var(--border-strong); }
 
 .switch { position: relative; display: inline-block; width: 46px; height: 26px; flex-shrink: 0; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .switch .slider {
   position: absolute; cursor: pointer; inset: 0; background: var(--border-strong);
-  border-radius: 999px; transition: background 0.2s ease;
+  border-radius: 999px; transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 .switch .slider::before {
   content: ""; position: absolute; height: 20px; width: 20px; left: 3px; bottom: 3px;
-  background: #fff; border-radius: 50%; transition: transform 0.2s ease;
+  background: #fff; border-radius: 50%; transition: transform 0.2s ease, box-shadow 0.2s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
-.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider { background: var(--accent); box-shadow: 0 0 8px var(--accent-strong); }
 .switch input:checked + .slider::before { transform: translateX(20px); }
 .switch input:focus-visible + .slider { box-shadow: 0 0 0 3px var(--accent-soft); }
-.switch input:disabled + .slider { opacity: 0.5; }
+.switch input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
+.switch:active input:not(:disabled) + .slider::before { width: 22px; }
+.switch input:not(:checked) + .slider:hover { background: var(--border); }
 
 /* --- Toast --- */
 .toast {
@@ -250,6 +292,12 @@ main { padding: 18px 16px 32px; }
 .stat-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px 16px;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.stat-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 .stat-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .stat-value {
@@ -285,10 +333,21 @@ body.has-nav { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   min-width: 64px; padding: 8px 4px; border: none; background: none; border-radius: var(--radius-sm);
   color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color 0.15s ease, transform 0.12s ease, background 0.15s ease;
 }
-.nav-item:hover { color: var(--text); }
+.nav-item:hover { color: var(--text); background: var(--surface-hover); }
+.nav-item:active { transform: scale(0.92); }
 .nav-item.active { color: var(--accent); }
+.nav-item.active .icon { filter: drop-shadow(0 0 4px var(--accent-strong)); }
+.nav-item.active::after {
+  content: "";
+  position: absolute; bottom: 2px; left: 50%;
+  transform: translateX(-50%);
+  width: 22px; height: 3px; border-radius: 999px;
+  background: var(--accent);
+  animation: pop-in 0.2s ease;
+}
+.nav-item { position: relative; }
 
 .icon { width: 18px; height: 18px; stroke: currentColor; flex-shrink: 0; }
 

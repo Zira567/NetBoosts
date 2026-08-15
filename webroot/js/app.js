@@ -238,14 +238,14 @@ async function loadDnsProfiles() {
   list.innerHTML = "";
 
   const offCard = document.createElement("div");
-  offCard.className = "card off";
+  offCard.className = "card off ripple";
   offCard.innerHTML = `<div class="emoji">${icon("🚫")}</div><div class="label">${t("dnsOff")}</div>`;
   makeClickable(offCard, () => applyDnsOff(offCard));
   list.appendChild(offCard);
 
   profiles.forEach((p) => {
     const card = document.createElement("div");
-    card.className = "card";
+    card.className = "card ripple";
     card.innerHTML = `<div class="emoji">${icon(p.icon)}</div><div class="label">${pick(p.name)}</div><div class="sub">${escapeHtml(p.host)}</div>`;
     makeClickable(card, () => applyDns(p.host, card));
     list.appendChild(card);
@@ -313,9 +313,9 @@ async function loadTcpPresets() {
   list.innerHTML = "";
   presets.forEach((p) => {
     const card = document.createElement("div");
-    card.className = "card";
+    card.className = "card ripple";
     const ccAlgo = p.congestion_control?.preferred || "";
-    card.innerHTML = `<div class="emoji">${icon(p.icon)}</div><div class="label">${pick(p.name)}</div>${ccAlgo ? `<div class="sub">${ccAlgo}</div>` : ""}`;
+    card.innerHTML = `<div class="emoji">${icon(p.icon)}</div><div class="label">${pick(p.name)}</div>${ccAlgo ? `<div class="sub">${escapeHtml(ccAlgo)}</div>` : ""}`;
     makeClickable(card, () => applyTcp(p, card));
     list.appendChild(card);
   });
