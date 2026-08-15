@@ -1,46 +1,47 @@
 # NetBoost
 
-Módulo root (Magisk / KernelSU / APatch) para configurar DNS privado y ajustes TCP, con WebUI integrada en el propio manager — **sin servidor Node.js ni puertos locales**. Disponible en español e inglés.
+Módulo root para configurar DNS privado y optimizar los parámetros TCP de Android. Compatible con Magisk, KernelSU y APatch. La interfaz web se abre dentro del propio manager, sin necesidad de servidor local ni puertos.
 
-## Cómo funciona la WebUI (importante)
+## Uso
 
-- Los archivos de `webroot/` se cargan directamente en el WebView del manager (no hay HTTP de por medio, no hay enlace externo que abrir).
-- Las acciones (cambiar DNS, aplicar preset TCP) se ejecutan con el objeto global `ksu` que el manager inyecta en la página (`webroot/js/bridge.js`).
-- En Magisk y APatch, este mismo `webroot/` funciona a través de una app compatible como **KsuWebUI**, que expone la misma API `ksu.exec`.
-- `service.sh` reaplica en cada arranque el último DNS/preset guardado en `/data/adb/modules/netboost/`.
-- El botón 🌐 de la barra superior cambia el idioma de la interfaz (ES/EN) al vuelo, sin recargar la página.
+1. Instala `NetBoost-v2.1.0.zip` desde el manager: Módulos → Instalar desde almacenamiento.
+2. Reinicia.
+3. Abre el módulo desde la lista de módulos y toca el icono de WebUI (⧉).
+
+La interfaz tiene dos idiomas (ES/EN), se cambia desde el botón de la barra superior.
+
+## Qué hace
+
+- **DNS privado**: selecciona un proveedor DoT (Cloudflare, Google, AdGuard, NextDNS, Quad9, OpenDNS) o escribe un host personalizado. El cambio se aplica con `settings put global private_dns_specifier`, el mecanismo estándar de Android.
+- **Presets TCP**: perfiles predefinidos (Balanceado, Agresivo, Conservador, Gaming) que ajustan `sysctl` en caliente. Cada preset usa el algoritmo de congestión disponible en el kernel y cae a `cubic` si el preferido no existe.
+- **Ajustes avanzados**: opciones individuales agrupadas por categoría (rendimiento, latencia, estabilidad y avanzado), con validación de lo que el kernel acepta realmente.
+
+Todo se guarda en `/data/adb/modules/netboost/` y se reaplica automáticamente en cada arranque.
 
 ## Estructura
 
 ```
 NetBoost/
-├── META-INF/com/google/android/   # instalador estándar Magisk (recuperación)
-├── module.prop
-├── customize.sh                   # permisos al instalar
-├── service.sh                     # reaplica config guardada al arrancar
-├── uninstall.sh
-├── backup.sh                      # utilidades compartidas de respaldo
-└── webroot/
+├── META-INF/com/google/android/   Instalador estándar Magisk
+├── module.prop                    Metadatos del módulo
+├── customize.sh                   Permisos al instalar
+├── service.sh                     Reaplica la configuración al arrancar
+├── uninstall.sh                   Restaura los valores originales
+├── backup.sh                      Utilidades compartidas de respaldo
+└── webroot/                       Interfaz web (ES/EN)
     ├── index.html
-    ├── css/style.css
-    ├── js/
-    │   ├── bridge.js    # puente con ksu.exec (sin servidor)
-    │   ├── i18n.js      # textos ES/EN y helper de traducción
-    │   └── app.js
-    └── config/
-        ├── dns-profiles.json   # nombres bilingües { es, en }
-        ├── tcp-presets.json    # nombres bilingües { es, en }
-        └── tcp-options.json    # nombres/etiquetas/hints bilingües { es, en }
+    ├── css/
+    └── js/
 ```
 
-## Instalación
+La WebUI se carga directamente en el WebView del manager (`webroot/js/bridge.js` se comunica con la API `ksu.exec`). En Magisk y APatch funciona con una app compatible como KsuWebUI. No hay HTTP de por medio: los archivos se sirven desde el propio módulo.
 
-1. Instala `NetBoost-v2.1.0.zip` (generado para release) desde el manager (KernelSU, Magisk o APatch) → Módulos → Instalar desde almacenamiento.
-2. Reinicia.
-3. Abre el módulo desde la lista de módulos → botón de WebUI (icono ⧉). Se abre dentro del propio manager, no en el navegador.
+## Detalles técnicos
+
+- La desinstalación restaura los valores de DNS y `sysctl` que existían antes de instalar el módulo; se respaldan en el primer uso.
+- Los presets se verifican después de aplicarse y la interfaz muestra el valor real del kernel cuando no acepta el solicitado.
+- El idioma elegido se recuerda entre sesiones.
 
 ## Notas
 
-- El cambio de DNS privado usa `settings put global private_dns_specifier`, el mecanismo estándar de Android para DNS-over-TLS.
-- Los presets TCP aplican valores de `sysctl` en caliente; se guardan y se reaplican en cada arranque vía `service.sh`.
-- El idioma elegido se guarda en `localStorage` del WebView y se recuerda entre sesiones.
+El módulo no modifica el sistema de forma persistente fuera de lo que el usuario configura explícitamente. Si no se aplica ningún preset, `service.sh` no toca los parámetros TCP.
