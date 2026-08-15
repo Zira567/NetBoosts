@@ -1,5 +1,55 @@
 # NetBoost
 
+A root module for configuring private DNS and optimizing TCP parameters on Android. Works with Magisk, KernelSU and APatch. The web interface opens inside the manager itself, with no local server or open ports.
+
+## Usage
+
+1. Install `NetBoost-v2.1.0.zip` from the manager: Modules → Install from storage.
+2. Reboot.
+3. Open the module from the modules list and tap the WebUI icon (⧉).
+
+The interface is available in Spanish and English, switchable from the top bar.
+
+## What it does
+
+- **Private DNS**: pick a DoT provider (Cloudflare, Google, AdGuard, NextDNS, Quad9, OpenDNS) or type a custom host. Changes are applied through `settings put global private_dns_specifier`, Android's standard mechanism.
+- **TCP presets**: predefined profiles (Balanced, Aggressive, Conservative, Gaming) that adjust `sysctl` on the fly. Each preset uses the congestion algorithm available in the kernel and falls back to `cubic` when the preferred one isn't present.
+- **Advanced settings**: individual options grouped by category (performance, latency, stability and advanced), validated against what the kernel actually accepts.
+
+Everything is stored in `/data/adb/modules/netboost/` and reapplied automatically on every boot.
+
+## Structure
+
+```
+NetBoost/
+├── META-INF/com/google/android/   Standard Magisk installer
+├── module.prop                    Module metadata
+├── customize.sh                   Permissions on install
+├── service.sh                     Reapplies settings on boot
+├── uninstall.sh                   Restores original values
+├── backup.sh                      Shared backup utilities
+└── webroot/                       Web interface (ES/EN)
+    ├── index.html
+    ├── css/
+    └── js/
+```
+
+The WebUI is loaded directly in the manager's WebView (`webroot/js/bridge.js` talks to the `ksu.exec` API). On Magisk and APatch it works with a compatible app such as KsuWebUI. There's no HTTP involved: the files are served from the module itself.
+
+## Technical details
+
+- Uninstalling restores the DNS and `sysctl` values that existed before the module was installed; they're backed up on first use.
+- Presets are verified after being applied and the interface shows the kernel's actual value when the requested one isn't accepted.
+- The chosen language is remembered between sessions.
+
+## Notes
+
+The module doesn't modify the system persistently beyond what the user explicitly configures. If no preset is applied, `service.sh` leaves the TCP parameters untouched.
+
+---
+
+# NetBoost
+
 Módulo root para configurar DNS privado y optimizar los parámetros TCP de Android. Compatible con Magisk, KernelSU y APatch. La interfaz web se abre dentro del propio manager, sin necesidad de servidor local ni puertos.
 
 ## Uso
