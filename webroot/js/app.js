@@ -239,6 +239,7 @@ async function loadDnsProfiles() {
 
   const offCard = document.createElement("div");
   offCard.className = "card off ripple";
+  offCard.dataset.host = "off";
   offCard.innerHTML = `<div class="emoji">${icon("🚫")}</div><div class="label">${t("dnsOff")}</div>`;
   makeClickable(offCard, () => applyDnsOff(offCard));
   list.appendChild(offCard);
@@ -246,10 +247,38 @@ async function loadDnsProfiles() {
   profiles.forEach((p) => {
     const card = document.createElement("div");
     card.className = "card ripple";
+    card.dataset.host = p.host;
     card.innerHTML = `<div class="emoji">${icon(p.icon)}</div><div class="label">${pick(p.name)}</div><div class="sub">${escapeHtml(p.host)}</div>`;
     makeClickable(card, () => applyDns(p.host, card));
     list.appendChild(card);
   });
+
+  const customCard = document.createElement("div");
+  customCard.className = "card ripple";
+  customCard.dataset.custom = "1";
+  customCard.innerHTML = `<div class="emoji">${icon("⚙")}</div><div class="label">${t("custom")}</div><div class="sub">${t("dnsCustomPlaceholder")}</div>`;
+  makeClickable(customCard, () => {
+    const val = document.getElementById("customDns").value.trim();
+    if (val) applyDns(val, customCard);
+  });
+  list.appendChild(customCard);
+
+  await restoreDnsSelection();
+}
+
+// Lee dns.state y marca la tarjeta correspondiente (o "off"). Si el host
+// persistido no coincide con ningún perfil, lo muestra en el campo personalizado.
+async function restoreDnsSelection() {
+  const customInput = document.getElementById("customDns");
+  try {
+    const r = await Bridge.exec(`cat ${STATE_DIR}/dns.state 2>/dev/null || true`);
+    const saved = r.stdout.trim();
+    if (!saved) return;
+    if (saved !== "off" && customInput && !document.querySelector(`#dnsList .card[data-host="${saved}"]`)) {
+      customInput.value = saved;
+    }
+    markDnsHost(saved, null);
+  } catch (e) { /* modo simulado / sin root */ }
 }
 
 function markDnsSelected(cardEl) {
@@ -261,12 +290,35 @@ function markDnsSelected(cardEl) {
   setPressed(cardEl, true);
 }
 
+// Marca la tarjeta correcta según el host aplicado: perfil, "off" o la
+// tarjeta personalizada (que muestra el host en su sub).
+function markDnsHost(host, cardEl) {
+  const candidates = [...document.querySelectorAll("#dnsList .card")]
+    .filter((c) => c.dataset.host && c.dataset.host === host);
+  if (candidates.length) {
+    markDnsSelected(candidates[0]);
+    return;
+  }
+  if (host === "off") {
+    markDnsSelected(document.querySelector("#dnsList .card.off"));
+    return;
+  }
+  const customCard = document.querySelector("#dnsList .card[data-custom]");
+  if (customCard) {
+    const sub = customCard.querySelector(".sub");
+    if (sub) sub.textContent = host;
+    markDnsSelected(customCard);
+  } else if (cardEl) {
+    markDnsSelected(cardEl);
+  }
+}
+
 async function applyDns(host, cardEl) {
   if (!isValidDnsHostname(host)) {
     showToast(t("toastDnsInvalid"));
     return;
   }
-  markDnsSelected(cardEl);
+  markDnsHost(host, cardEl);
   const cmd = [
     `mkdir -p ${STATE_DIR}`,
     `sh ${STATE_DIR}/backup.sh ensure_dns`,
@@ -283,7 +335,7 @@ async function applyDns(host, cardEl) {
 }
 
 async function applyDnsOff(cardEl) {
-  markDnsSelected(cardEl);
+  markDnsHost("off", cardEl);
   const cmd = [
     `mkdir -p ${STATE_DIR}`,
     `sh ${STATE_DIR}/backup.sh ensure_dns`,
@@ -314,11 +366,40 @@ async function loadTcpPresets() {
   presets.forEach((p) => {
     const card = document.createElement("div");
     card.className = "card ripple";
+    card.dataset.preset = p.id;
     const ccAlgo = p.congestion_control?.preferred || "";
     card.innerHTML = `<div class="emoji">${icon(p.icon)}</div><div class="label">${pick(p.name)}</div>${ccAlgo ? `<div class="sub">${escapeHtml(ccAlgo)}</div>` : ""}`;
     makeClickable(card, () => applyTcp(p, card));
     list.appendChild(card);
   });
+  await restoreTcpSelection();
+}
+
+// Lee tcp.state y marca el preset activo.
+async function restoreTcpSelection() {
+  try {
+    const r = await Bridge.exec(`cat ${STATE_DIR}/tcp.state 2>/dev/null || true`);
+    const saved = r.stdout.trim();
+    if (!saved) return;
+    const target = document.querySelector(`#tcpList .card[data-preset="${saved}"]`);
+    if (target) {
+      markTcpSelected(target);
+    } else {
+      document.querySelectorAll("#tcpList .card").forEach((c) => {
+        c.classList.remove("selected");
+        setPressed(c, false);
+      });
+    }
+  } catch (e) { /* modo simulado / sin root */ }
+}
+
+function markTcpSelected(cardEl) {
+  document.querySelectorAll("#tcpList .card").forEach((c) => {
+    c.classList.remove("selected");
+    setPressed(c, false);
+  });
+  cardEl?.classList.add("selected");
+  setPressed(cardEl, true);
 }
 
 async function getAvailableCongestionAlgos() {
@@ -330,12 +411,7 @@ async function getAvailableCongestionAlgos() {
 }
 
 async function applyTcp(preset, cardEl) {
-  document.querySelectorAll("#tcpList .card").forEach((c) => {
-    c.classList.remove("selected");
-    setPressed(c, false);
-  });
-  cardEl?.classList.add("selected");
-  setPressed(cardEl, true);
+  markTcpSelected(cardEl);
 
   const presetName = pick(preset.name);
 
@@ -518,10 +594,7 @@ async function applyOption(optId, opt, value) {
       else delete advancedState[k];
     });
     setInstancesValue(optId, finalValue);
-    document.querySelectorAll("#tcpList .card").forEach((c) => {
-      c.classList.remove("selected");
-      setPressed(c, false);
-    });
+    markTcpSelected(null);
     await persistAdvancedState();
 
     showToast(mismatch
