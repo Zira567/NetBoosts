@@ -81,6 +81,30 @@ function isValidDnsHostname(host) {
   return labels.every((l) => l.length > 0 && l.length <= 63 && !l.startsWith("-") && !l.endsWith("-"));
 }
 
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+// Carga el estado avanzado persistido (tcp_advanced.state) al iniciar la UI.
+// Solo acepta claves/valores válidos; así el render inicial muestra lo que se
+// reaplicará en el próximo boot y los overrides de preset respetan lo guardado.
+async function loadAdvancedState() {
+  try {
+    const r = await Bridge.exec(`cat ${STATE_DIR}/tcp_advanced.state 2>/dev/null || true`);
+    const parsed = {};
+    String(r.stdout).split("\n").forEach((line) => {
+      const eq = line.indexOf("=");
+      if (eq <= 0) return;
+      const key = line.slice(0, eq);
+      const value = line.slice(eq + 1);
+      if (isValidSysctlKey(key) && isValidSysctlValue(value)) parsed[key] = value;
+    });
+    advancedState = parsed;
+  } catch (e) { /* modo simulado / sin root */ }
+}
+
 async function writeSysctl(key, value) {
   await Bridge.exec(`sh ${STATE_DIR}/backup.sh ensure ${key} && sysctl -w ${key}="${value}"`);
 }
@@ -222,7 +246,7 @@ async function loadDnsProfiles() {
   profiles.forEach((p) => {
     const card = document.createElement("div");
     card.className = "card";
-    card.innerHTML = `<div class="emoji">${icon(p.icon)}</div><div class="label">${pick(p.name)}</div><div class="sub">${p.host}</div>`;
+    card.innerHTML = `<div class="emoji">${icon(p.icon)}</div><div class="label">${pick(p.name)}</div><div class="sub">${escapeHtml(p.host)}</div>`;
     makeClickable(card, () => applyDns(p.host, card));
     list.appendChild(card);
   });
@@ -672,6 +696,7 @@ async function loadTcpCategories() {
   container.innerHTML = `<div class="hint">${t("detecting")}</div><div class="skeleton"></div><div class="skeleton"></div>`;
   globalContainer.innerHTML = '<div class="skeleton"></div>';
 
+  await loadAdvancedState();
   const res = await fetch("config/tcp-options.json");
   optionsSchema = await res.json();
 
@@ -874,9 +899,10 @@ async function netPerfRunTest() {
     download = netPerfParseCurl(dlOut);
 
     const upOut = await netPerfExecSafe(
-      `dd if=/dev/zero of=/data/local/tmp/netboost_up.bin bs=1M count=${NETPERF_UPLOAD_SIZE} 2>/dev/null; ` +
-      `curl -s --max-time 12 -o /dev/null -w '%{http_code} %{speed_upload}' -X POST --data-binary '@/data/local/tmp/netboost_up.bin' '${NETPERF_UPLOAD_URL}' 2>/dev/null; ` +
-      `rm -f /data/local/tmp/netboost_up.bin`
+      `TMP=/data/local/tmp/netboost_up.$$.bin; ` +
+      `dd if=/dev/zero of=$TMP bs=1M count=${NETPERF_UPLOAD_SIZE} 2>/dev/null; ` +
+      `curl -s --max-time 12 -o /dev/null -w '%{http_code} %{speed_upload}' -X POST --data-binary @$TMP '${NETPERF_UPLOAD_URL}' 2>/dev/null; ` +
+      `rm -f $TMP`
     );
     upload = netPerfParseCurl(upOut);
   }
@@ -915,7 +941,7 @@ netPerfSetState("empty");
 function renderStatusRow(label, value) {
   const row = document.createElement("div");
   row.className = "status-row";
-  row.innerHTML = `<span class="status-row-label">${label}</span><span class="status-row-value">${value}</span>`;
+  row.innerHTML = `<span class="status-row-label">${escapeHtml(label)}</span><span class="status-row-value">${escapeHtml(value)}</span>`;
   return row;
 }
 
