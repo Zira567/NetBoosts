@@ -46,7 +46,13 @@ The WebUI is loaded directly in the manager's WebView (`webroot/js/bridge.js` ta
 
 The module doesn't modify the system persistently beyond what the user explicitly configures. If no preset is applied, `service.sh` leaves the TCP parameters untouched.
 
+## License
+
+This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](LICENSE) file for details.
+
 ---
+
+
 
 # NetBoost
 
@@ -95,3 +101,7 @@ La WebUI se carga directamente en el WebView del manager (`webroot/js/bridge.js`
 ## Notas
 
 El módulo no modifica el sistema de forma persistente fuera de lo que el usuario configura explícitamente. Si no se aplica ningún preset, `service.sh` no toca los parámetros TCP.
+
+## Licencia
+
+Este proyecto está licenciado bajo la **GNU General Public License v3.0**. Consulta el archivo [LICENSE](LICENSE) para más detalles.
