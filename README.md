@@ -50,6 +50,8 @@ The module doesn't modify the system persistently beyond what the user explicitl
 
 This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](LICENSE) file for details.
 
+See the [CHANGELOG](CHANGELOG.md) for version history.
+
 ---
 
 
@@ -105,3 +107,5 @@ El módulo no modifica el sistema de forma persistente fuera de lo que el usuari
 ## Licencia
 
 Este proyecto está licenciado bajo la **GNU General Public License v3.0**. Consulta el archivo [LICENSE](LICENSE) para más detalles.
+
+Consulta el [CHANGELOG](CHANGELOG.md) para el historial de versiones.

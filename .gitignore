@@ -1,0 +1,14 @@
+# Build artifacts
+*.zip
+!NetBoost-*.zip
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
