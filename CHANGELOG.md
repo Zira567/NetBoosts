@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.1] - 2026-08-15
+
+### Added
+- GPL-3.0 license and CHANGELOG to the module package.
+
 ## [2.1.0] - 2026-08-15
 
 ### Added
