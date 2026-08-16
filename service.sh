@@ -30,6 +30,13 @@ if [ -f "$STATE_DIR/tcp.state" ]; then
     while IFS='=' read -r KEY VALUE; do
       [ -n "$KEY" ] || continue
       [ "$KEY" = "preset" ] && continue
+      # Si el kernel compila el algoritmo como módulo (p.ej. tcp_bbr=m en GKI)
+      # y aún no está cargado, se intenta cargar antes de escribir la clave.
+      if [ "$KEY" = "net.ipv4.tcp_congestion_control" ]; then
+        modprobe "tcp_${VALUE}" 2>/dev/null || \
+          insmod "/system/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
+          insmod "/vendor/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || true
+      fi
       apply_sysctl "$KEY" "$VALUE"
     done < "$STATE_DIR/tcp.state"
   else

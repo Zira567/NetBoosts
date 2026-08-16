@@ -11,14 +11,16 @@
       "type": "select",
       "sysctl": "net.ipv4.tcp_congestion_control",
       "dynamic": true,
-      "global": true
+      "global": true,
+      "config": "CONFIG_TCP_CONG_*"
     },
     "tcp_fastopen": {
       "name": { "es": "TCP Fast Open", "en": "TCP Fast Open" },
       "type": "toggle",
       "sysctl": "net.ipv4.tcp_fastopen",
       "onValue": "3",
-      "offValue": "0"
+      "offValue": "0",
+      "config": "CONFIG_TCP_FASTOPEN"
     },
     "window_scaling": {
       "name": { "es": "Window Scaling", "en": "Window Scaling" },
@@ -41,6 +43,7 @@
       "name": { "es": "MTU Probing", "en": "MTU Probing" },
       "type": "select",
       "sysctl": "net.ipv4.tcp_mtu_probing",
+      "config": "CONFIG_TCP_MTU_PROBING",
       "values": [
         { "label": { "es": "Desactivado", "en": "Disabled" }, "value": "0" },
         { "label": { "es": "Automático", "en": "Automatic" }, "value": "1" },

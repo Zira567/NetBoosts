@@ -183,15 +183,15 @@ function parseTcpResolution(content) {
       result.preset = line.slice("preset=".length).trim();
       continue;
     }
-    const match = line.match(/^(applied|fallback|avoid|unsupported|invalid|rejected):/);
+    const match = line.match(/^(applied|fallback|loaded|avoid|unsupported|invalid|rejected):/);
     if (!match) continue;
     const kind = match[1];
     const rest = line.slice(kind.length + 1);
-    if (kind === "applied" || kind === "rejected" || kind === "fallback") {
+    if (kind === "applied" || kind === "rejected" || kind === "fallback" || kind === "loaded") {
       const eq = rest.indexOf("=");
       const key = rest.slice(0, eq);
       const restVal = rest.slice(eq + 1);
-      if (kind === "fallback") {
+      if (kind === "fallback" || kind === "loaded") {
         // fallback:clave=valor:preferido -> { key, value, note }
         const colon = restVal.indexOf(":");
         result.entries.push({
@@ -220,26 +220,27 @@ function renderTcpResolution(resolution) {
   if (!details || !body) return;
 
   const entries = Array.isArray(resolution) ? resolution : parseTcpResolution(resolution).entries;
-  // El fallback sí aplicó un valor (ej. cubic en vez de bbr); es una nota
-  // explicativa, no una omisión. El resto son parámetros que se saltaron.
-  const fallbacks = entries.filter((e) => e.kind === "fallback");
-  const omitted = entries.filter((e) => e.kind !== "applied" && e.kind !== "fallback");
+  // El fallback y el módulo cargado sí aplicaron un valor (ej. cubic en vez
+  // de bbr); son notas explicativas, no omisiones. El resto son parámetros
+  // que se saltaron.
+  const notes = entries.filter((e) => e.kind === "fallback" || e.kind === "loaded");
+  const omitted = entries.filter((e) => e.kind !== "applied" && e.kind !== "fallback" && e.kind !== "loaded");
 
   if (sub) sub.textContent = omitted.length ? `${omitted.length} ${t("tcpResolutionOmitted")}` : "";
 
-  if (fallbacks.length === 0 && omitted.length === 0) {
+  if (notes.length === 0 && omitted.length === 0) {
     details.hidden = true;
     return;
   }
   details.hidden = false;
 
   const show = (e) => {
-    const iconEl = e.kind === "fallback" ? "↪" : "✕";
-    const reason = t(`tcpResolution${e.kind}`, e.kind === "fallback" ? { from: e.note, to: e.value } : null);
+    const iconEl = (e.kind === "fallback" || e.kind === "loaded") ? "↪" : "✕";
+    const reason = t(`tcpResolution${e.kind}`, (e.kind === "fallback" || e.kind === "loaded") ? { from: e.note, to: e.value } : null);
     const keyEl = `<code>${escapeHtml(e.key)}</code>`;
     return `<div class="res-line res-${e.kind}"><span class="res-icon">${iconEl}</span><span class="res-key">${keyEl}</span><span class="res-reason">${reason}</span></div>`;
   };
-  body.innerHTML = [...fallbacks, ...omitted].map(show).join("");
+  body.innerHTML = [...notes, ...omitted].map(show).join("");
 }
 
 // Carga y muestra el detalle persistido (p. ej. al abrir la WebUI tras un
@@ -469,6 +470,7 @@ async function loadTcpPresets() {
   const res = await fetch("config/tcp-presets.json");
   const presets = await res.json();
   tcpPresets = presets;
+  await probeSysctlSupport();
   list.innerHTML = "";
   presets.forEach((p) => {
     const card = document.createElement("div");
@@ -550,13 +552,81 @@ async function getAvailableCongestionAlgos() {
 
 // Verifica que una clave sysctl exista y sea legible antes de intentar
 // escribirla. Evita fallos silenciosos en kernels que no la implementan.
+// El resultado se cachea para que el arranque de la UI haga un único probe
+// en lote y el resto del motor consulte el mapa sin repetir llamadas shell.
+let sysctlSupport = {};
+
 async function sysctlKeyExists(key) {
+  if (key in sysctlSupport) return sysctlSupport[key];
   try {
     await Bridge.exec(`sysctl -n ${key} >/dev/null 2>&1`);
-    return true;
+    sysctlSupport[key] = true;
   } catch (e) {
-    return false;
+    sysctlSupport[key] = false;
   }
+  return sysctlSupport[key];
+}
+
+// Probe en lote de soporte de claves: comprueba todas las claves del catálogo
+// y de los presets (incluida la base universal net.core.*) en una sola
+// llamada de shell y guarda el resultado en sysctlSupport. Cada línea de
+// salida es "1:clave" (soportada) o "0:clave" (el kernel no la implementa).
+async function probeSysctlSupport() {
+  const keys = new Set(["net.ipv4.tcp_congestion_control"]);
+  if (optionsSchema?.options) {
+    for (const opt of Object.values(optionsSchema.options)) {
+      optKeys(opt).forEach((k) => keys.add(k));
+    }
+  }
+  if (tcpPresets?.length) {
+    for (const p of tcpPresets) {
+      Object.keys(p.sysctl || {}).forEach((k) => keys.add(k));
+      Object.keys(p.base_sysctl || {}).forEach((k) => keys.add(k));
+    }
+  }
+  const valid = [...keys].filter(isValidSysctlKey);
+  if (!valid.length) return;
+  const script = valid
+    .map((k) => `{ sysctl -n ${k} >/dev/null 2>&1 && echo "1:${k}" || echo "0:${k}"; }`)
+    .join(";");
+  try {
+    const r = await Bridge.exec(script);
+    String(r.stdout).split("\n").forEach((line) => {
+      const m = line.match(/^([01]):(.+)$/);
+      if (m) sysctlSupport[m[2]] = m[1] === "1";
+    });
+  } catch (e) { /* el probe es informativo; no bloquea el arranque */ }
+}
+
+// Intenta cargar el módulo de un algoritmo de congestión que el kernel
+// compila como módulo (p.ej. tcp_bbr en GKI: CONFIG_TCP_CONG_BBR=m). Si el
+// módulo no existe, el comando no hace nada y se usa el fallback.
+async function tryLoadCCModule(algo) {
+  const mod = `tcp_${algo}`;
+  try {
+    await Bridge.exec(
+      `(modprobe ${mod} 2>/dev/null || insmod /system/lib/modules/${mod}.ko 2>/dev/null || insmod /vendor/lib/modules/${mod}.ko 2>/dev/null); true`
+    );
+  } catch (e) { /* kernel sin modprobe/insmod */ }
+}
+
+// Resuelve el algoritmo de congestión del preset: preferido, fallback o carga
+// del módulo del preferido antes de rendirse. kind = "preferred" | "fallback"
+// | "loaded" | null.
+async function resolveCC(cc, initialCap) {
+  if (!cc) return { algo: null, kind: null };
+  let cap = initialCap || (await probeCapabilities());
+  if (cap.ccEffective.includes(cc.preferred)) return { algo: cc.preferred, kind: "preferred" };
+  // El preferido no está activo: el kernel puede compilarlo como módulo sin
+  // cargar (GKI hace tcp_bbr=m). Se intenta cargar antes de rendirse al
+  // fallback; si el módulo no existe, el comando no hace nada.
+  await tryLoadCCModule(cc.preferred);
+  cap = await probeCapabilities();
+  if (cap.ccEffective.includes(cc.preferred)) return { algo: cc.preferred, kind: "loaded" };
+  if (cc.preferred !== cc.fallback && cap.ccEffective.includes(cc.fallback)) {
+    return { algo: cc.fallback, kind: "fallback" };
+  }
+  return { algo: null, kind: null };
 }
 
 async function applyTcp(preset, cardEl) {
@@ -566,13 +636,10 @@ async function applyTcp(preset, cardEl) {
 
   const cap = await probeCapabilities();
   const cc = preset.congestion_control;
-  let resolvedCC = null;
-  if (cc) {
-    if (cap.ccEffective.length === 0 || cap.ccEffective.includes(cc.preferred)) resolvedCC = cc.preferred;
-    else if (cap.ccEffective.includes(cc.fallback)) resolvedCC = cc.fallback;
-  }
+  const ccRes = await resolveCC(cc, cap);
+  const resolvedCC = ccRes.algo;
 
-  const targetMap = { ...preset.sysctl };
+  const targetMap = { ...(preset.base_sysctl || {}), ...preset.sysctl };
   if (resolvedCC && isValidSysctlValue(resolvedCC)) {
     targetMap["net.ipv4.tcp_congestion_control"] = resolvedCC;
   }
@@ -582,9 +649,12 @@ async function applyTcp(preset, cardEl) {
   const resolution = [];
   const avoidKeys = preset.avoid || [];
 
-  // El algoritmo preferido no está disponible: el motor usó el fallback.
-  if (cc && resolvedCC && resolvedCC !== cc.preferred) {
+  // El algoritmo preferido no está disponible: el motor usó el fallback, o
+  // cargó el módulo del preferido (p.ej. tcp_bbr en GKI, CONFIG=…=m).
+  if (cc && resolvedCC && ccRes.kind === "fallback") {
     resolution.push({ kind: "fallback", key: "net.ipv4.tcp_congestion_control", value: resolvedCC, note: cc.preferred });
+  } else if (cc && resolvedCC && ccRes.kind === "loaded") {
+    resolution.push({ kind: "loaded", key: "net.ipv4.tcp_congestion_control", value: resolvedCC, note: cc.preferred });
   }
 
   // Claves de la denylist del preset: nunca se intentan (restricción).
@@ -600,6 +670,7 @@ async function applyTcp(preset, cardEl) {
 
   const appliedMap = {};
   const failed = [];
+  let unsupportedCount = 0;
   let persistFailed = false;
   try {
     await Bridge.exec(`mkdir -p ${STATE_DIR}`);
@@ -613,7 +684,7 @@ async function applyTcp(preset, cardEl) {
         continue;
       }
       if (!(await sysctlKeyExists(key))) {
-        failed.push(key);
+        unsupportedCount++;
         resolution.push({ kind: "unsupported", key });
         continue;
       }
@@ -652,7 +723,7 @@ async function applyTcp(preset, cardEl) {
       const detailLines = [`preset=${preset.id}`];
       for (const r of resolution) {
         if (r.kind === "applied") detailLines.push(`applied:${r.key}=${r.value}`);
-        else if (r.kind === "fallback") detailLines.push(`fallback:${r.key}=${r.value}:${r.note}`);
+        else if (r.kind === "fallback" || r.kind === "loaded") detailLines.push(`${r.kind}:${r.key}=${r.value}:${r.note}`);
         else if (r.kind === "avoid") detailLines.push(`avoid:${r.key}`);
         else if (r.kind === "unsupported") detailLines.push(`unsupported:${r.key}`);
         else if (r.kind === "invalid") detailLines.push(`invalid:${r.key}`);
@@ -664,7 +735,9 @@ async function applyTcp(preset, cardEl) {
     if (failed.length === 0) {
       showToast(persistFailed
         ? t("toastTcpNotSaved", { name: presetName })
-        : t("toastTcpApplied", { name: presetName }));
+        : unsupportedCount
+          ? t("toastTcpAdapted", { name: presetName, count: unsupportedCount })
+          : t("toastTcpApplied", { name: presetName }));
     } else if (Object.keys(appliedMap).length > failed.length) {
       showToast(t("toastTcpPartial", { name: presetName, count: failed.length }));
     } else {
@@ -812,7 +885,19 @@ async function applyOption(optId, opt, value) {
   }
 }
 
-function renderToggle(container, optId, opt, uidSuffix, currentValue) {
+// Nota que se añade bajo una opción cuando su clave sysctl no existe en este
+// kernel. Muestra el CONFIG que falta y las claves concretas no soportadas.
+function unsupportedNote(opt, keys) {
+  const note = document.createElement("div");
+  note.className = "option-unsupported-note";
+  const cfg = opt.config ? `${opt.config} · ` : "";
+  note.textContent = `${t("optUnsupported")} · ${cfg}${keys.join(", ")}`;
+  note.title = t("optUnsupportedTitle", { keys: keys.join(", ") });
+  note.setAttribute("role", "note");
+  return note;
+}
+
+function renderToggle(container, optId, opt, uidSuffix, currentValue, unsupportedKeys = []) {
   const row = document.createElement("div");
   row.className = "option-row";
   row.innerHTML = `
@@ -824,6 +909,11 @@ function renderToggle(container, optId, opt, uidSuffix, currentValue) {
   const input = row.querySelector("input");
   input.checked = currentValue === opt.onValue;
   input.setAttribute("aria-label", pick(opt.name));
+  if (unsupportedKeys.length) {
+    input.disabled = true;
+    row.classList.add("is-unsupported");
+    container.appendChild(unsupportedNote(opt, unsupportedKeys));
+  }
   input.addEventListener("change", () => {
     applyOption(optId, opt, input.checked ? opt.onValue : opt.offValue);
   });
@@ -839,7 +929,7 @@ function formatTriplet(value) {
   return t("bufferDetail", { min, def, max });
 }
 
-function renderSelect(container, optId, opt, uidSuffix, currentValue, rawValues) {
+function renderSelect(container, optId, opt, uidSuffix, currentValue, rawValues, unsupportedKeys = []) {
   const values = withCustomFallback(rawValues, currentValue);
   optMeta[optId] = { rawValues, opt };
   const row = document.createElement("div");
@@ -873,6 +963,12 @@ function renderSelect(container, optId, opt, uidSuffix, currentValue, rawValues)
     detailEl = document.createElement("div");
     detailEl.className = "option-detail";
     container.appendChild(detailEl);
+  }
+
+  if (unsupportedKeys.length) {
+    select.disabled = true;
+    row.classList.add("is-unsupported");
+    container.appendChild(unsupportedNote(opt, unsupportedKeys));
   }
 
   select.addEventListener("change", () => applyOption(optId, opt, select.value));
@@ -952,19 +1048,20 @@ async function readIntTriplet(key) {
 async function renderOption(container, optId, uidSuffix) {
   const opt = optionsSchema.options[optId];
   const currentValue = await readCurrentValue(opt);
+  const unsupportedKeys = optKeys(opt).filter((k) => sysctlSupport[k] === false);
 
   if (opt.type === "toggle") {
-    renderToggle(container, optId, opt, uidSuffix, currentValue);
+    renderToggle(container, optId, opt, uidSuffix, currentValue, unsupportedKeys);
   } else if (opt.adaptive === "buffer") {
     const values = await computeBufferValues(opt);
-    renderSelect(container, optId, opt, uidSuffix, currentValue, values);
+    renderSelect(container, optId, opt, uidSuffix, currentValue, values, unsupportedKeys);
   } else if (opt.dynamic) {
     const values = detectedAlgos.length
       ? detectedAlgos.map((a) => ({ label: a, value: a, custom: true }))
       : [];
-    renderSelect(container, optId, opt, uidSuffix, currentValue, values);
+    renderSelect(container, optId, opt, uidSuffix, currentValue, values, unsupportedKeys);
   } else {
-    renderSelect(container, optId, opt, uidSuffix, currentValue, opt.values);
+    renderSelect(container, optId, opt, uidSuffix, currentValue, opt.values, unsupportedKeys);
   }
 }
 
@@ -977,6 +1074,11 @@ async function loadTcpCategories() {
   await loadAdvancedState();
   const res = await fetch("config/tcp-options.json");
   optionsSchema = await res.json();
+
+  // Sonda una única vez qué claves existen en este kernel (todas las del
+  // catálogo y los presets). El resultado se cachea en sysctlSupport y sirve
+  // para marcar/ocultar opciones no soportadas y para decidir el applyTcp.
+  await probeSysctlSupport();
 
   try {
     await getAvailableCongestionAlgos();
