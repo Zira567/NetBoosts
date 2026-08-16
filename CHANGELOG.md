@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.1] - 2026-08-16
+
+### Added
+- Transparency panel: the WebUI now shows exactly what each TCP preset applied, what it skipped and why (preferred congestion control unavailable, blocked by the preset's denylist, key unsupported by the kernel, invalid value or value rejected). Shown as a collapsible panel in the TCP section and a summary on the dashboard.
+
 ## [2.2.0] - 2026-08-16
 
 ### Added
