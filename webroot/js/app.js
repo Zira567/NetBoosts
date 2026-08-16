@@ -544,10 +544,42 @@ async function probeCapabilities() {
 // La lista "efectiva" (available ∩ allowed) es la que usan el selector de
 // congestión y la resolución de presets. Se mantiene detectadaAlgos por
 // compatibilidad con el render dinámico del selector.
+// OJO: "available" solo lista los algoritmos CARGADOS. En muchos kernels
+// (GKI y custom) algoritmos como cubic, westwood, highspeed o htcp se
+// compilan como módulo y no aparecen hasta cargarlos (tcp_<algo>.ko). El
+// selector y la resolución usan available + módulos que el kernel puede
+// cargar, de modo que "balanced" (cubic) no caiga a reno por no estar cargado.
 async function getAvailableCongestionAlgos() {
   const cap = await probeCapabilities();
-  detectedAlgos = cap.ccEffective;
+  try {
+    await discoverCCModules();
+  } catch (e) { /* sin acceso a los directorios de módulos */ }
+  detectedAlgos = [...new Set([...cap.ccEffective, ...ccModuleNames])].sort();
   return detectedAlgos;
+}
+
+// Directorios donde los kernels Android guardan los módulos tcp_*.ko
+const CC_MODULE_GLOBS = [
+  "/system/lib/modules/tcp_*.ko*",
+  "/vendor/lib/modules/tcp_*.ko*",
+  "/vendor_dlkm/lib/modules/tcp_*.ko*",
+  "/vendor_dlkm/lib/modules/*/tcp_*.ko*",
+  "/system_dlkm/lib/modules/tcp_*.ko*",
+  "/system_dlkm/lib/modules/*/tcp_*.ko*",
+  "/lib/modules/tcp_*.ko*",
+  "/lib/modules/*/tcp_*.ko*"
+];
+let ccModuleNames = [];
+
+// Lista los algoritmos de congestión que el kernel puede cargar como módulo
+// aunque aún no estén cargados. Salida: un nombre de algoritmo por línea.
+async function discoverCCModules() {
+  const globs = CC_MODULE_GLOBS.join(" ");
+  const r = await Bridge.exec(
+    `for f in ${globs}; do case "$f" in *tcp_*.ko*) a="\${f##*/}"; a="\${a%.ko*}"; echo "\${a#tcp_}";; esac; done; true`
+  );
+  ccModuleNames = [...new Set(String(r.stdout).trim().split(/\s+/).filter(Boolean))];
+  return ccModuleNames;
 }
 
 // Verifica que una clave sysctl exista y sea legible antes de intentar
@@ -599,14 +631,23 @@ async function probeSysctlSupport() {
 }
 
 // Intenta cargar el módulo de un algoritmo de congestión que el kernel
-// compila como módulo (p.ej. tcp_bbr en GKI: CONFIG_TCP_CONG_BBR=m). Si el
-// módulo no existe, el comando no hace nada y se usa el fallback.
+// compila como módulo (p.ej. tcp_bbr en GKI: CONFIG_TCP_CONG_BBR=m, o
+// tcp_cubic/tcp_westwood en kernels custom). Busca en los directorios de
+// módulos habituales (dlkm, vendor, sistema). Si el módulo no existe, el
+// comando no hace nada y el motor usa el fallback.
 async function tryLoadCCModule(algo) {
   const mod = `tcp_${algo}`;
+  const cmd =
+    `(modprobe ${mod} 2>/dev/null || ` +
+    `insmod /system/lib/modules/${mod}.ko 2>/dev/null || ` +
+    `insmod /vendor/lib/modules/${mod}.ko 2>/dev/null || ` +
+    `insmod /vendor_dlkm/lib/modules/${mod}.ko 2>/dev/null || ` +
+    `insmod /system_dlkm/lib/modules/${mod}.ko 2>/dev/null || ` +
+    `insmod /lib/modules/${mod}.ko 2>/dev/null || ` +
+    `for p in /vendor_dlkm/lib/modules/*/${mod}.ko /system_dlkm/lib/modules/*/${mod}.ko /lib/modules/*/${mod}.ko; do ` +
+    `[ -e "$p" ] && { insmod "$p" 2>/dev/null && break; }; done); true`;
   try {
-    await Bridge.exec(
-      `(modprobe ${mod} 2>/dev/null || insmod /system/lib/modules/${mod}.ko 2>/dev/null || insmod /vendor/lib/modules/${mod}.ko 2>/dev/null); true`
-    );
+    await Bridge.exec(cmd);
   } catch (e) { /* kernel sin modprobe/insmod */ }
 }
 
@@ -856,6 +897,20 @@ async function applyOption(optId, opt, value) {
     return;
   }
   try {
+    // Control de congestión: si el algoritmo elegido no está cargado, se
+    // intenta cargar su módulo (tcp_<algo>.ko) antes de escribir la clave.
+    if (opt.dynamic && value) {
+      const cap = await probeCapabilities();
+      if (!cap.ccEffective.includes(value)) {
+        await tryLoadCCModule(value);
+        const cap2 = await probeCapabilities();
+        if (!cap2.ccEffective.includes(value)) {
+          showToast(t("toastCcUnloadable", { name: optName }));
+          setInstancesValue(optId, await readCurrentValue(opt));
+          return;
+        }
+      }
+    }
     for (let i = 0; i < keys.length; i++) {
       await writeSysctl(keys[i], parts[i]);
     }
