@@ -1,6 +1,6 @@
 id=netboost
 name=NetBoost
-version=v2.1.1
-versionCode=4
+version=v2.2.0
+versionCode=5
 author=NetBoost
 description=Controlador avanzado de DNS privado y ajustes TCP con WebUI (KernelSU/Magisk/APatch)
