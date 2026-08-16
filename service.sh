@@ -44,6 +44,14 @@ if [ -f "$STATE_DIR/tcp.state" ]; then
                    "/lib/modules/"*/"tcp_${VALUE}.ko"; do
             [ -e "$p" ] && { insmod "$p" 2>/dev/null && break; }
           done || true
+        # Algunos kernels restringen tcp_allowed_congestion_control a un
+        # subconjunto; se amplía a todo lo disponible antes de activar el
+        # algoritmo para que el boot reproduzca la elección de la WebUI.
+        AVAILABLE_CC=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null)
+        case " $(cat /proc/sys/net/ipv4/tcp_allowed_congestion_control 2>/dev/null) " in
+          *" $VALUE "*) : ;;
+          *) [ -n "$AVAILABLE_CC" ] && apply_sysctl net.ipv4.tcp_allowed_congestion_control "$AVAILABLE_CC" ;;
+        esac
       fi
       apply_sysctl "$KEY" "$VALUE"
     done < "$STATE_DIR/tcp.state"

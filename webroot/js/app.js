@@ -183,15 +183,15 @@ function parseTcpResolution(content) {
       result.preset = line.slice("preset=".length).trim();
       continue;
     }
-    const match = line.match(/^(applied|fallback|loaded|avoid|unsupported|invalid|rejected):/);
+    const match = line.match(/^(applied|fallback|loaded|enabled|avoid|unsupported|invalid|rejected):/);
     if (!match) continue;
     const kind = match[1];
     const rest = line.slice(kind.length + 1);
-    if (kind === "applied" || kind === "rejected" || kind === "fallback" || kind === "loaded") {
+    if (kind === "applied" || kind === "rejected" || kind === "fallback" || kind === "loaded" || kind === "enabled") {
       const eq = rest.indexOf("=");
       const key = rest.slice(0, eq);
       const restVal = rest.slice(eq + 1);
-      if (kind === "fallback" || kind === "loaded") {
+      if (kind === "fallback" || kind === "loaded" || kind === "enabled") {
         // fallback:clave=valor:preferido -> { key, value, note }
         const colon = restVal.indexOf(":");
         result.entries.push({
@@ -220,11 +220,10 @@ function renderTcpResolution(resolution) {
   if (!details || !body) return;
 
   const entries = Array.isArray(resolution) ? resolution : parseTcpResolution(resolution).entries;
-  // El fallback y el módulo cargado sí aplicaron un valor (ej. cubic en vez
-  // de bbr); son notas explicativas, no omisiones. El resto son parámetros
-  // que se saltaron.
-  const notes = entries.filter((e) => e.kind === "fallback" || e.kind === "loaded");
-  const omitted = entries.filter((e) => e.kind !== "applied" && e.kind !== "fallback" && e.kind !== "loaded");
+  // El fallback, el módulo cargado y el habilitado vía allowed sí aplicaron un
+  // valor; son notas explicativas, no omisiones. El resto se saltaron.
+  const notes = entries.filter((e) => e.kind === "fallback" || e.kind === "loaded" || e.kind === "enabled");
+  const omitted = entries.filter((e) => e.kind !== "applied" && e.kind !== "fallback" && e.kind !== "loaded" && e.kind !== "enabled");
 
   if (sub) sub.textContent = omitted.length ? `${omitted.length} ${t("tcpResolutionOmitted")}` : "";
 
@@ -235,8 +234,9 @@ function renderTcpResolution(resolution) {
   details.hidden = false;
 
   const show = (e) => {
-    const iconEl = (e.kind === "fallback" || e.kind === "loaded") ? "↪" : "✕";
-    const reason = t(`tcpResolution${e.kind}`, (e.kind === "fallback" || e.kind === "loaded") ? { from: e.note, to: e.value } : null);
+    const isNote = e.kind === "fallback" || e.kind === "loaded" || e.kind === "enabled";
+    const iconEl = isNote ? "↪" : "✕";
+    const reason = t(`tcpResolution${e.kind}`, isNote ? { from: e.note, to: e.value } : null);
     const keyEl = `<code>${escapeHtml(e.key)}</code>`;
     return `<div class="res-line res-${e.kind}"><span class="res-icon">${iconEl}</span><span class="res-key">${keyEl}</span><span class="res-reason">${reason}</span></div>`;
   };
@@ -541,20 +541,16 @@ async function probeCapabilities() {
   return { ccAvailable, ccAllowed, ccEffective };
 }
 
-// La lista "efectiva" (available ∩ allowed) es la que usan el selector de
-// congestión y la resolución de presets. Se mantiene detectadaAlgos por
-// compatibilidad con el render dinámico del selector.
-// OJO: "available" solo lista los algoritmos CARGADOS. En muchos kernels
-// (GKI y custom) algoritmos como cubic, westwood, highspeed o htcp se
-// compilan como módulo y no aparecen hasta cargarlos (tcp_<algo>.ko). El
-// selector y la resolución usan available + módulos que el kernel puede
-// cargar, de modo que "balanced" (cubic) no caiga a reno por no estar cargado.
+// La lista mostrada en el selector es "available" ∪ módulos cargables: lo que
+// el kernel proporciona, independientemente de tcp_allowed_congestion_control
+// (que puede estar restringido a un subconjunto). Al elegir un algoritmo, el
+// motor amplía "allowed" a todo lo disponible (ver ensureCCWritable).
 async function getAvailableCongestionAlgos() {
   const cap = await probeCapabilities();
   try {
     await discoverCCModules();
   } catch (e) { /* sin acceso a los directorios de módulos */ }
-  detectedAlgos = [...new Set([...cap.ccEffective, ...ccModuleNames])].sort();
+  detectedAlgos = [...new Set([...cap.ccAvailable, ...ccModuleNames])].sort();
   return detectedAlgos;
 }
 
@@ -651,21 +647,43 @@ async function tryLoadCCModule(algo) {
   } catch (e) { /* kernel sin modprobe/insmod */ }
 }
 
-// Resuelve el algoritmo de congestión del preset: preferido, fallback o carga
-// del módulo del preferido antes de rendirse. kind = "preferred" | "fallback"
-// | "loaded" | null.
+// Intenta que un algoritmo de congestión sea seleccionable:
+//  1. Si está en tcp_available_congestion_control pero tcp_allowed_congestion_
+//     control lo bloquea (algunos kernels restringen la lista allowed a un
+//     subconjunto), amplía allowed a todo lo disponible.
+//  2. Si ni siquiera está en available, intenta cargar su módulo tcp_<algo>.ko.
+// Devuelve { ok, how } con how = "loaded" | "enabled" según el mecanismo.
+async function ensureCCWritable(algo) {
+  let cap = await probeCapabilities();
+  if (cap.ccEffective.includes(algo)) return { ok: true, how: "ok" };
+  let loaded = false;
+  if (!cap.ccAvailable.includes(algo)) {
+    await tryLoadCCModule(algo);
+    loaded = true;
+    cap = await probeCapabilities();
+  }
+  if (cap.ccAvailable.includes(algo) && !cap.ccAllowed.includes(algo)) {
+    try {
+      await writeSysctl("net.ipv4.tcp_allowed_congestion_control", cap.ccAvailable.join(" "));
+    } catch (e) { /* la lista allowed no es ampliable en este kernel */ }
+    cap = await probeCapabilities();
+  }
+  if (cap.ccEffective.includes(algo)) return { ok: true, how: loaded ? "loaded" : "enabled" };
+  return { ok: false, how: null };
+}
+
+// Resuelve el algoritmo de congestión del preset: preferido, o activa el
+// preferido/fallback (cargando módulo o ampliando allowed). kind =
+// "preferred" | "enabled" | "loaded" | "fallback" | null.
 async function resolveCC(cc, initialCap) {
   if (!cc) return { algo: null, kind: null };
-  let cap = initialCap || (await probeCapabilities());
+  const cap = initialCap || (await probeCapabilities());
   if (cap.ccEffective.includes(cc.preferred)) return { algo: cc.preferred, kind: "preferred" };
-  // El preferido no está activo: el kernel puede compilarlo como módulo sin
-  // cargar (GKI hace tcp_bbr=m). Se intenta cargar antes de rendirse al
-  // fallback; si el módulo no existe, el comando no hace nada.
-  await tryLoadCCModule(cc.preferred);
-  cap = await probeCapabilities();
-  if (cap.ccEffective.includes(cc.preferred)) return { algo: cc.preferred, kind: "loaded" };
-  if (cc.preferred !== cc.fallback && cap.ccEffective.includes(cc.fallback)) {
-    return { algo: cc.fallback, kind: "fallback" };
+  const pref = await ensureCCWritable(cc.preferred);
+  if (pref.ok) return { algo: cc.preferred, kind: pref.how === "loaded" ? "loaded" : "enabled" };
+  if (cc.preferred !== cc.fallback) {
+    const fb = await ensureCCWritable(cc.fallback);
+    if (fb.ok) return { algo: cc.fallback, kind: "fallback" };
   }
   return { algo: null, kind: null };
 }
@@ -690,12 +708,15 @@ async function applyTcp(preset, cardEl) {
   const resolution = [];
   const avoidKeys = preset.avoid || [];
 
-  // El algoritmo preferido no está disponible: el motor usó el fallback, o
-  // cargó el módulo del preferido (p.ej. tcp_bbr en GKI, CONFIG=…=m).
+  // El algoritmo preferido no está disponible: el motor usó el fallback, cargó
+  // el módulo del preferido (p.ej. tcp_bbr en GKI), o amplió la lista allowed
+  // para habilitarlo (algunos kernels la restringen a un subconjunto).
   if (cc && resolvedCC && ccRes.kind === "fallback") {
     resolution.push({ kind: "fallback", key: "net.ipv4.tcp_congestion_control", value: resolvedCC, note: cc.preferred });
   } else if (cc && resolvedCC && ccRes.kind === "loaded") {
     resolution.push({ kind: "loaded", key: "net.ipv4.tcp_congestion_control", value: resolvedCC, note: cc.preferred });
+  } else if (cc && resolvedCC && ccRes.kind === "enabled") {
+    resolution.push({ kind: "enabled", key: "net.ipv4.tcp_congestion_control", value: resolvedCC, note: cc.preferred });
   }
 
   // Claves de la denylist del preset: nunca se intentan (restricción).
@@ -764,7 +785,7 @@ async function applyTcp(preset, cardEl) {
       const detailLines = [`preset=${preset.id}`];
       for (const r of resolution) {
         if (r.kind === "applied") detailLines.push(`applied:${r.key}=${r.value}`);
-        else if (r.kind === "fallback" || r.kind === "loaded") detailLines.push(`${r.kind}:${r.key}=${r.value}:${r.note}`);
+        else if (r.kind === "fallback" || r.kind === "loaded" || r.kind === "enabled") detailLines.push(`${r.kind}:${r.key}=${r.value}:${r.note}`);
         else if (r.kind === "avoid") detailLines.push(`avoid:${r.key}`);
         else if (r.kind === "unsupported") detailLines.push(`unsupported:${r.key}`);
         else if (r.kind === "invalid") detailLines.push(`invalid:${r.key}`);
@@ -897,18 +918,15 @@ async function applyOption(optId, opt, value) {
     return;
   }
   try {
-    // Control de congestión: si el algoritmo elegido no está cargado, se
-    // intenta cargar su módulo (tcp_<algo>.ko) antes de escribir la clave.
+    // Control de congestión: si el algoritmo elegido no está activo, se
+    // intenta activarlo (cargar su módulo o ampliar tcp_allowed_congestion_
+    // control) antes de escribir la clave.
     if (opt.dynamic && value) {
-      const cap = await probeCapabilities();
-      if (!cap.ccEffective.includes(value)) {
-        await tryLoadCCModule(value);
-        const cap2 = await probeCapabilities();
-        if (!cap2.ccEffective.includes(value)) {
-          showToast(t("toastCcUnloadable", { name: optName }));
-          setInstancesValue(optId, await readCurrentValue(opt));
-          return;
-        }
+      const r = await ensureCCWritable(value);
+      if (!r.ok) {
+        showToast(t("toastCcUnloadable", { name: optName }));
+        setInstancesValue(optId, await readCurrentValue(opt));
+        return;
       }
     }
     for (let i = 0; i < keys.length; i++) {
