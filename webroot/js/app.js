@@ -8,10 +8,6 @@ let tcpPresets = [];
 
 // --- Iconografía SVG (capa de render; no altera la lógica funcional) ---
 const ICONS = {
-  bolt: '<path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>',
-  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>',
-  gauge: '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
-  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.5 3.8 5.7 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.7-3.8-9s1.3-6.5 3.8-9z"/>',
   moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
@@ -22,16 +18,13 @@ const ICONS = {
   signal: '<path d="M2 20h2M7 20v-4M12 20v-8M17 20v-12M22 20V4"/>',
   sliders: '<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3"/><path d="M14 2v4M8 10v4M16 18v4"/>',
   lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
-  pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
   cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/>',
   shieldcheck: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
   zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
-  ban: '<circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/>',
-  refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>'
+  ban: '<circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/>'
 };
 const EMOJI_ICONS = {
-  "⚡": "bolt", "🌐": "globe", "🌙": "moon", "☀": "sun",
   "🔵": "cloud", "📍": "search", "🟢": "shieldcheck", "🎵": "zap", "🔒": "lock", "🟠": "globe",
   "🚫": "ban", "⚖": "scale", "🚀": "rocket", "🛡": "shield",
   "🎮": "gamepad", "📶": "signal", "⚙": "sliders"
@@ -374,11 +367,36 @@ async function loadDnsProfiles() {
   await restoreDnsSelection();
 }
 
-// Lee dns.state y marca la tarjeta correspondiente (o "off"). Si el host
-// persistido no coincide con ningún perfil, lo muestra en el campo personalizado.
+// Lee el DNS privado REAL del dispositivo (private_dns_mode / private_dns_
+// specifier) y marca la tarjeta correspondiente, aunque lo haya configurado el
+// usuario desde los ajustes del teléfono y no desde NetBoost. Si el modo no es
+// legible (p. ej. modo simulado sin root), cae al último estado persistido.
 async function restoreDnsSelection() {
   const customInput = document.getElementById("customDns");
   try {
+    const modeR = await Bridge.exec("settings get global private_dns_mode");
+    const specR = await Bridge.exec("settings get global private_dns_specifier");
+    const mode = modeR.stdout.trim();
+    const spec = specR.stdout.trim();
+    if (mode === "off") {
+      markDnsHost("off", null);
+      return;
+    }
+    if (mode === "hostname") {
+      if (spec && spec !== "null") {
+        if (customInput && !document.querySelector(`#dnsList .card[data-host="${spec}"]`)) {
+          customInput.value = spec;
+        }
+        markDnsHost(spec, null);
+      } else {
+        markDnsSelected(null);
+      }
+      return;
+    }
+    if (mode && mode !== "null") {
+      markDnsSelected(null);
+      return;
+    }
     const r = await Bridge.exec(`cat ${STATE_DIR}/dns.state 2>/dev/null || true`);
     const saved = r.stdout.trim();
     if (!saved) return;
@@ -572,7 +590,7 @@ let ccModuleNames = [];
 async function discoverCCModules() {
   const globs = CC_MODULE_GLOBS.join(" ");
   const r = await Bridge.exec(
-    `for f in ${globs}; do case "$f" in *tcp_*.ko*) a="\${f##*/}"; a="\${a%.ko*}"; echo "\${a#tcp_}";; esac; done; true`
+    `for f in ${globs}; do case "$f" in *tcp_*.ko*) [ -e "$f" ] || continue; a="\${f##*/}"; a="\${a%.ko*}"; echo "\${a#tcp_}";; esac; done; true`
   );
   ccModuleNames = [...new Set(String(r.stdout).trim().split(/\s+/).filter(Boolean))];
   return ccModuleNames;
@@ -688,7 +706,24 @@ async function resolveCC(cc, initialCap) {
   return { algo: null, kind: null };
 }
 
+// Fase 2 (P2): evita operaciones TCP concurrentes (doble clic en presets o un
+// preset junto a una opción avanzada a la vez). Mientras una está en marcha,
+// las demás se ignoran; el flag se libera siempre gracias al finally.
+let tcpOpInFlight = false;
+
 async function applyTcp(preset, cardEl) {
+  if (tcpOpInFlight) return;
+  tcpOpInFlight = true;
+  try {
+    await applyTcpInner(preset, cardEl);
+  } catch (e) {
+    showToast(t("toastTcpError"));
+  } finally {
+    tcpOpInFlight = false;
+  }
+}
+
+async function applyTcpInner(preset, cardEl) {
   markTcpSelected(cardEl);
 
   const presetName = pick(preset.name);
@@ -737,9 +772,13 @@ async function applyTcp(preset, cardEl) {
   try {
     await Bridge.exec(`mkdir -p ${STATE_DIR}`);
     for (const [key, value] of Object.entries(targetMap)) {
-      const override = (advancedState[key] !== undefined && advancedState[key] !== "")
-        ? advancedState[key]
-        : String(value);
+      // El control de congestión es responsabilidad del preset: su algoritmo
+      // resuelto (resolvedCC) tiene prioridad absoluta y no puede ser
+      // sustituido por el override manual que el selector hubiera dejado.
+      const isCC = key === "net.ipv4.tcp_congestion_control";
+      const override = (isCC || (advancedState[key] === undefined || advancedState[key] === ""))
+        ? String(value)
+        : advancedState[key];
       if (!isValidSysctlKey(key) || !isValidSysctlValue(override)) {
         failed.push(key);
         resolution.push({ kind: "invalid", key });
@@ -793,6 +832,21 @@ async function applyTcp(preset, cardEl) {
       }
       await writeTcpResolution(detailLines);
     } catch (e) { /* la resolución detallada es informativa */ }
+
+    // El preset tomó control del control de congestión SOLO cuando la resolución
+    // registra la clave como "applied" (escritura exitosa + verificación que
+    // coincide con el algoritmo resuelto). Si la escritura falló o el kernel
+    // devolvió otro valor (H1), el preset NO tomó el control: se conserva el
+    // override manual y el estado persistente tal cual.
+    if (resolution.some((r) => r.key === "net.ipv4.tcp_congestion_control" && r.kind === "applied") &&
+        Object.prototype.hasOwnProperty.call(advancedState, "net.ipv4.tcp_congestion_control")) {
+      delete advancedState["net.ipv4.tcp_congestion_control"];
+      try {
+        await persistAdvancedState();
+      } catch (e) {
+        persistFailed = true;
+      }
+    }
 
     if (failed.length === 0) {
       showToast(persistFailed
@@ -909,6 +963,18 @@ async function syncAdvancedFromSysctl(sysctlMap) {
 }
 
 async function applyOption(optId, opt, value) {
+  if (tcpOpInFlight) return;
+  tcpOpInFlight = true;
+  try {
+    await applyOptionInner(optId, opt, value);
+  } catch (e) {
+    showToast(t("toastOptError", { name: pick(opt.name) }));
+  } finally {
+    tcpOpInFlight = false;
+  }
+}
+
+async function applyOptionInner(optId, opt, value) {
   const keys = optKeys(opt);
   const parts = value.split(",").map(normalizeSpace);
   const optName = pick(opt.name);
@@ -1202,9 +1268,11 @@ async function refreshDashboard() {
   try {
     const mode = await Bridge.exec("settings get global private_dns_mode");
     const dns = await Bridge.exec("settings get global private_dns_specifier");
-    const dnsLabel = mode.stdout.trim() === "off"
+    const modeRaw = mode.stdout.trim();
+    const dnsRaw = dns.stdout.trim();
+    const dnsLabel = modeRaw === "off"
       ? t("dnsOffValue")
-      : (dns.stdout.trim() || t("dnsNotSet"));
+      : (dnsRaw && dnsRaw !== "null" ? dnsRaw : t("dnsNotSet"));
     setStat("dashDnsValue", dnsLabel, dnsLabel === t("dnsNotSet"));
   } catch (e) { /* mantiene dashUnknown */ }
   try {
@@ -1406,9 +1474,11 @@ async function refreshStatus() {
     const mode = await Bridge.exec("settings get global private_dns_mode");
     const dns = await Bridge.exec("settings get global private_dns_specifier");
     const cong = await Bridge.exec("sysctl -n net.ipv4.tcp_congestion_control");
-    const dnsLabel = mode.stdout.trim() === "off"
+    const modeRaw = mode.stdout.trim();
+    const dnsRaw = dns.stdout.trim();
+    const dnsLabel = modeRaw === "off"
       ? t("dnsOffValue")
-      : (dns.stdout.trim() || t("dnsNotSet"));
+      : (dnsRaw && dnsRaw !== "null" ? dnsRaw : t("dnsNotSet"));
     list.appendChild(renderStatusRow(t("statusDnsLabel"), dnsLabel));
     list.appendChild(renderStatusRow(t("statusCcLabel"), cong.stdout.trim() || t("dashUnknown")));
     list.appendChild(renderStatusRow(

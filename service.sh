@@ -21,6 +21,31 @@ if [ -f "$STATE_DIR/dns.state" ]; then
   fi
 fi
 
+# Prepara el control de congestión: si el kernel compila el algoritmo como
+# módulo (p.ej. tcp_bbr=m en GKI, o tcp_cubic/tcp_westwood en kernels custom)
+# y aún no está cargado, se intenta cargar; y si tcp_allowed_congestion_control
+# está restringido a un subconjunto, se amplía a todo lo disponible. Así el
+# arranque reproduce la elección del WebUI tanto de presets como del selector.
+prepare_cc() {
+  local VALUE="$1"
+  modprobe "tcp_${VALUE}" 2>/dev/null || \
+    insmod "/system/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
+    insmod "/vendor/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
+    insmod "/vendor_dlkm/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
+    insmod "/system_dlkm/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
+    for p in "/vendor_dlkm/lib/modules/"*/"tcp_${VALUE}.ko" \
+             "/system_dlkm/lib/modules/"*/"tcp_${VALUE}.ko" \
+             "/lib/modules/"*/"tcp_${VALUE}.ko"; do
+      [ -e "$p" ] && { insmod "$p" 2>/dev/null && break; }
+    done || true
+  local AVAILABLE_CC
+  AVAILABLE_CC=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null)
+  case " $(cat /proc/sys/net/ipv4/tcp_allowed_congestion_control 2>/dev/null) " in
+    *" $VALUE "*) : ;;
+    *) [ -n "$AVAILABLE_CC" ] && apply_sysctl net.ipv4.tcp_allowed_congestion_control "$AVAILABLE_CC" ;;
+  esac
+}
+
 # tcp.state guarda la RESOLUCIÓN del preset: primera línea "preset=<id>" y
 # después las claves "sysctl.key=valor" que el kernel aceptó al aplicarlas.
 # Se reaplica línea a línea tal cual, sin re-resolver: el arranque reproduce
@@ -30,28 +55,8 @@ if [ -f "$STATE_DIR/tcp.state" ]; then
     while IFS='=' read -r KEY VALUE; do
       [ -n "$KEY" ] || continue
       [ "$KEY" = "preset" ] && continue
-      # Si el kernel compila el algoritmo como módulo (p.ej. tcp_bbr=m en GKI,
-      # o tcp_cubic/tcp_westwood en kernels custom) y aún no está cargado, se
-      # intenta cargar antes de escribir la clave.
       if [ "$KEY" = "net.ipv4.tcp_congestion_control" ]; then
-        modprobe "tcp_${VALUE}" 2>/dev/null || \
-          insmod "/system/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
-          insmod "/vendor/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
-          insmod "/vendor_dlkm/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
-          insmod "/system_dlkm/lib/modules/tcp_${VALUE}.ko" 2>/dev/null || \
-          for p in "/vendor_dlkm/lib/modules/"*/"tcp_${VALUE}.ko" \
-                   "/system_dlkm/lib/modules/"*/"tcp_${VALUE}.ko" \
-                   "/lib/modules/"*/"tcp_${VALUE}.ko"; do
-            [ -e "$p" ] && { insmod "$p" 2>/dev/null && break; }
-          done || true
-        # Algunos kernels restringen tcp_allowed_congestion_control a un
-        # subconjunto; se amplía a todo lo disponible antes de activar el
-        # algoritmo para que el boot reproduzca la elección de la WebUI.
-        AVAILABLE_CC=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null)
-        case " $(cat /proc/sys/net/ipv4/tcp_allowed_congestion_control 2>/dev/null) " in
-          *" $VALUE "*) : ;;
-          *) [ -n "$AVAILABLE_CC" ] && apply_sysctl net.ipv4.tcp_allowed_congestion_control "$AVAILABLE_CC" ;;
-        esac
+        prepare_cc "$VALUE"
       fi
       apply_sysctl "$KEY" "$VALUE"
     done < "$STATE_DIR/tcp.state"
@@ -82,15 +87,25 @@ if [ -f "$STATE_DIR/tcp.state" ]; then
       fi
       EXTRA=""
       [ "$PRESET" = "aggressive" ] || [ "$PRESET" = "gaming" ] && EXTRA="net.ipv4.tcp_fastopen=3"
-      apply_sysctl net.ipv4.tcp_congestion_control "$CC"
+      # Se prepara el algoritmo (módulo o ampliación de tcp_allowed_
+      # congestion_control) igual que en el resto de rutas, para que el CC
+      # elegido por el usuario no quede fuera por la lista restringida.
+      prepare_cc "$CC"
+      CC_OK=0
+      apply_sysctl net.ipv4.tcp_congestion_control "$CC" && CC_OK=1
       apply_sysctl net.ipv4.tcp_window_scaling 1
       apply_sysctl net.ipv4.tcp_sack 1
       [ -n "$EXTRA" ] && apply_sysctl "${EXTRA%%=*}" "${EXTRA#*=}"
-      printf 'preset=%s\n%s=%s\nnet.ipv4.tcp_window_scaling=1\nnet.ipv4.tcp_sack=1\n%s\n' \
-        "$PRESET" \
-        net.ipv4.tcp_congestion_control "$CC" \
-        "$EXTRA" > "$STATE_DIR/.tcp_state.tmp" && \
-        mv -f "$STATE_DIR/.tcp_state.tmp" "$STATE_DIR/tcp.state"
+      # Solo se persiste la resolución si el kernel aceptó el control de
+      # congestión elegido; si no, se conserva el formato antiguo y se
+      # reintenta en el próximo arranque sin dejar un tcp.state inválido.
+      if [ "$CC_OK" = "1" ]; then
+        printf 'preset=%s\n%s=%s\nnet.ipv4.tcp_window_scaling=1\nnet.ipv4.tcp_sack=1\n%s\n' \
+          "$PRESET" \
+          net.ipv4.tcp_congestion_control "$CC" \
+          "$EXTRA" > "$STATE_DIR/.tcp_state.tmp" && \
+          mv -f "$STATE_DIR/.tcp_state.tmp" "$STATE_DIR/tcp.state"
+      fi
     fi
   fi
 fi
@@ -98,8 +113,13 @@ fi
 # Reaplica las opciones avanzadas individuales (Rendimiento, Baja latencia,
 # Estabilidad, Avanzado) guardadas como líneas "sysctl.key=valor".
 # apply_sysctl ignora de forma defensiva claves o valores vacíos/inválidos.
+# El control de congestión elegido desde el selector también pasa por
+# prepare_cc, igual que en tcp.state, para que sobreviva al reinicio.
 if [ -f "$STATE_DIR/tcp_advanced.state" ]; then
   while IFS='=' read -r KEY VALUE; do
+    if [ "$KEY" = "net.ipv4.tcp_congestion_control" ]; then
+      prepare_cc "$VALUE"
+    fi
     apply_sysctl "$KEY" "$VALUE"
   done < "$STATE_DIR/tcp_advanced.state"
 fi
