@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.4.0] - 2026-08-16
+
+### Added
+- Congestion control module discovery: the WebUI now scans the kernel's module directories (`/system`, `/vendor`, `*_dlkm`, `/lib/modules`) for `tcp_*.ko` modules, so algorithms that are built as modules and not yet loaded (cubic, westwood, highspeed, htcp, …) appear in the congestion control selector and can be picked.
+- The engine auto-loads the preferred algorithm's module before falling back (`modprobe tcp_<algo>` / `insmod`, including versioned dlkm paths), both when applying presets and when choosing an algorithm in the selector. If the module can't be loaded, a toast explains it and the current value is restored.
+- `service.sh` tries the full set of module locations on boot before applying `tcp_congestion_control`.
+
+### Fixed
+- On kernels that ship congestion control as modules (e.g. `CONFIG_TCP_CONG_CUBIC=m`), `tcp_available_congestion_control` only lists *loaded* algorithms, so the Balanced preset (cubic) fell back to `reno` even though cubic was loadable. Now the module is loaded first and the preset applies cubic correctly.
+
 ## [2.3.0] - 2026-08-16
 
 ### Added
