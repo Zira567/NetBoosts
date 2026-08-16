@@ -240,6 +240,29 @@ main { padding: 18px 16px 32px; }
 }
 .congestion-card { padding: 12px 14px 14px; margin-bottom: 4px; }
 
+/* --- Transparencia de la resolución TCP (qué se omitió y por qué) --- */
+.res-line {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 13px; line-height: 1.5; padding: 5px 0;
+}
+.res-line + .res-line { border-top: 1px dashed var(--border); }
+.res-icon { flex-shrink: 0; width: 16px; text-align: center; font-weight: 700; }
+.res-key code {
+  font-family: var(--font-mono); font-size: 12px; background: var(--surface-hover);
+  border-radius: 4px; padding: 1px 6px; overflow-wrap: anywhere;
+}
+.res-reason { color: var(--muted); margin-left: auto; text-align: right; font-size: 12px; }
+.res-fallback .res-icon { color: var(--warn); }
+.res-avoid .res-icon { color: var(--warn); }
+.res-unsupported .res-icon { color: var(--warn); }
+.res-invalid .res-icon { color: var(--danger); }
+.res-rejected .res-icon { color: var(--danger); }
+.res-fallback .res-reason { color: var(--warn); }
+.res-avoid .res-reason { color: var(--warn); }
+.res-unsupported .res-reason { color: var(--warn); }
+.res-invalid .res-reason { color: var(--danger); }
+.res-rejected .res-reason { color: var(--danger); }
+
 .option-row {
   display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px;
 }

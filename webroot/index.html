@@ -30,6 +30,7 @@
           <div class="stat-card">
             <div class="stat-label" data-i18n="dashPreset">Preset TCP</div>
             <div class="stat-value" id="dashPresetValue">—</div>
+            <div class="stat-sub" id="dashPresetSub"></div>
           </div>
           <div class="stat-card">
             <div class="stat-label" data-i18n="statusDnsLabel">DNS privado actual</div>
@@ -107,6 +108,14 @@
           <p class="panel-sub" data-i18n="tcpSub">Selecciona un perfil y aplícalo al instante.</p>
         </div>
         <div id="tcpList" class="card-grid"></div>
+
+        <details id="tcpResolution" class="category tcp-resolution" hidden>
+          <summary>
+            <span class="cat-icon">🔍</span>
+            <span data-i18n="tcpResolutionTitle">Resolución aplicada</span>
+          </summary>
+          <div id="tcpResolutionBody" class="category-body"></div>
+        </details>
 
         <p class="section-head section-spacer" data-i18n="congestionHint">Control de congestión (global):</p>
         <div id="congestionControlRow" class="category congestion-card"></div>

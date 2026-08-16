@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Capability probe: detects congestion control actually allowed by the kernel (available ∩ allowed) and checks each sysctl key exists before applying.
 - Presets now declare an explicit `avoid` denylist; the engine never applies those keys.
+- Transparency: the WebUI shows exactly what was applied, skipped and why (fallback, blocked by preset, unsupported, rejected) in a resolution panel and on the dashboard.
 
 ### Changed
 - `tcp.state` now stores the resolved result (`preset=` + the exact keys/values the kernel accepted), and `service.sh` reapplies it line by line on boot without re-resolving.

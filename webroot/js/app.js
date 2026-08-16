@@ -155,6 +155,102 @@ async function writeTcpState(lines) {
   await Bridge.exec(cmd);
 }
 
+// Escribe el detalle informativo de la resolución (tcp.resolution): qué se
+// aplicó, qué se omitió y por qué. Solo lo lee la WebUI; service.sh usa
+// tcp.state para el arranque.
+async function writeTcpResolution(lines) {
+  const quoted = lines.map((l) => `"${l}"`).join(" ");
+  const cmd =
+    `mkdir -p ${STATE_DIR} && ` +
+    `printf '%s\\n' ${quoted} > ${STATE_DIR}/.tcp_resolution.tmp && ` +
+    `mv -f ${STATE_DIR}/.tcp_resolution.tmp ${STATE_DIR}/tcp.resolution`;
+  await Bridge.exec(cmd);
+}
+
+// Parsea el detalle de tcp.resolution en un objeto { preset, entries } donde
+// cada entry es { kind, key, value?, note? }. Formato por línea:
+//   preset=<id>
+//   applied:clave=valor        -> se aplicó y verificó
+//   fallback:clave=valor:orig  -> preferido no disponible, usado fallback
+//   avoid:clave                -> restringido por el preset (denylist)
+//   unsupported:clave          -> el kernel no tiene esa clave
+//   invalid:clave              -> clave/valor inválidos
+//   rejected:clave=valor       -> el kernel rechazó el valor
+function parseTcpResolution(content) {
+  const result = { preset: "", entries: [] };
+  for (const line of String(content).split("\n")) {
+    if (line.startsWith("preset=")) {
+      result.preset = line.slice("preset=".length).trim();
+      continue;
+    }
+    const match = line.match(/^(applied|fallback|avoid|unsupported|invalid|rejected):/);
+    if (!match) continue;
+    const kind = match[1];
+    const rest = line.slice(kind.length + 1);
+    if (kind === "applied" || kind === "rejected" || kind === "fallback") {
+      const eq = rest.indexOf("=");
+      const key = rest.slice(0, eq);
+      const restVal = rest.slice(eq + 1);
+      if (kind === "fallback") {
+        // fallback:clave=valor:preferido -> { key, value, note }
+        const colon = restVal.indexOf(":");
+        result.entries.push({
+          kind,
+          key,
+          value: colon >= 0 ? restVal.slice(0, colon) : restVal,
+          note: colon >= 0 ? restVal.slice(colon + 1) : ""
+        });
+      } else {
+        result.entries.push({ kind, key, value: restVal });
+      }
+    } else {
+      result.entries.push({ kind, key: rest });
+    }
+  }
+  return result;
+}
+
+// Muestra el detalle de la resolución en el panel desplegable de la sección
+// TCP y en el dashboard (sub-texto del preset). Si no hay nada omitido,
+// oculta el panel para no llenar la pantalla de ruido.
+function renderTcpResolution(resolution) {
+  const details = document.getElementById("tcpResolution");
+  const body = document.getElementById("tcpResolutionBody");
+  const sub = document.getElementById("dashPresetSub");
+  if (!details || !body) return;
+
+  const entries = Array.isArray(resolution) ? resolution : parseTcpResolution(resolution).entries;
+  // El fallback sí aplicó un valor (ej. cubic en vez de bbr); es una nota
+  // explicativa, no una omisión. El resto son parámetros que se saltaron.
+  const fallbacks = entries.filter((e) => e.kind === "fallback");
+  const omitted = entries.filter((e) => e.kind !== "applied" && e.kind !== "fallback");
+
+  if (sub) sub.textContent = omitted.length ? `${omitted.length} ${t("tcpResolutionOmitted")}` : "";
+
+  if (fallbacks.length === 0 && omitted.length === 0) {
+    details.hidden = true;
+    return;
+  }
+  details.hidden = false;
+
+  const show = (e) => {
+    const iconEl = e.kind === "fallback" ? "↪" : "✕";
+    const reason = t(`tcpResolution${e.kind}`, e.kind === "fallback" ? { from: e.note, to: e.value } : null);
+    const keyEl = `<code>${escapeHtml(e.key)}</code>`;
+    return `<div class="res-line res-${e.kind}"><span class="res-icon">${iconEl}</span><span class="res-key">${keyEl}</span><span class="res-reason">${reason}</span></div>`;
+  };
+  body.innerHTML = [...fallbacks, ...omitted].map(show).join("");
+}
+
+// Carga y muestra el detalle persistido (p. ej. al abrir la WebUI tras un
+// arranque, sin haber vuelto a aplicar el preset).
+async function loadTcpResolution() {
+  try {
+    const r = await Bridge.exec(`cat ${STATE_DIR}/tcp.resolution 2>/dev/null || true`);
+    renderTcpResolution(parseTcpResolution(r.stdout));
+  } catch (e) { /* sin estado previo */ }
+}
+
 function persistAdvancedState() {
   const entries = Object.entries(advancedState)
     .filter(([k, v]) => isValidSysctlKey(k) && isValidSysctlValue(v));
@@ -481,9 +577,26 @@ async function applyTcp(preset, cardEl) {
     targetMap["net.ipv4.tcp_congestion_control"] = resolvedCC;
   }
 
+  // Transparencia: registramos qué se aplicó, qué se omitió y por qué, para
+  // mostrarlo en el panel de resolución y persistirlo en tcp.resolution.
+  const resolution = [];
+  const avoidKeys = preset.avoid || [];
+
+  // El algoritmo preferido no está disponible: el motor usó el fallback.
+  if (cc && resolvedCC && resolvedCC !== cc.preferred) {
+    resolution.push({ kind: "fallback", key: "net.ipv4.tcp_congestion_control", value: resolvedCC, note: cc.preferred });
+  }
+
+  // Claves de la denylist del preset: nunca se intentan (restricción).
+  avoidKeys.forEach((k) => {
+    if (Object.prototype.hasOwnProperty.call(preset.sysctl, k)) {
+      resolution.push({ kind: "avoid", key: k });
+    }
+  });
+
   // Restricciones explícitas: el motor nunca aplica las claves de la denylist
   // del preset, aunque estén presentes en su sysctl. Previene tweaks dañinos.
-  (preset.avoid || []).forEach((k) => { delete targetMap[k]; });
+  avoidKeys.forEach((k) => { delete targetMap[k]; });
 
   const appliedMap = {};
   const failed = [];
@@ -496,10 +609,12 @@ async function applyTcp(preset, cardEl) {
         : String(value);
       if (!isValidSysctlKey(key) || !isValidSysctlValue(override)) {
         failed.push(key);
+        resolution.push({ kind: "invalid", key });
         continue;
       }
       if (!(await sysctlKeyExists(key))) {
         failed.push(key);
+        resolution.push({ kind: "unsupported", key });
         continue;
       }
       try {
@@ -507,9 +622,15 @@ async function applyTcp(preset, cardEl) {
         const verify = await Bridge.exec(`sysctl -n ${key}`);
         const actual = normalizeSpace(verify.stdout);
         appliedMap[key] = actual;
-        if (actual !== normalizeSpace(override)) failed.push(key);
+        if (actual !== normalizeSpace(override)) {
+          failed.push(key);
+          resolution.push({ kind: "rejected", key, value: override });
+        } else {
+          resolution.push({ kind: "applied", key, value: actual });
+        }
       } catch (e) {
         failed.push(key);
+        resolution.push({ kind: "rejected", key, value: override });
       }
     }
     try {
@@ -525,6 +646,21 @@ async function applyTcp(preset, cardEl) {
       persistFailed = true;
     }
 
+    // Guarda el detalle de la resolución para que el panel y el dashboard
+    // expliquen qué ocurrió con cada parámetro (transparencia, Fase 2).
+    try {
+      const detailLines = [`preset=${preset.id}`];
+      for (const r of resolution) {
+        if (r.kind === "applied") detailLines.push(`applied:${r.key}=${r.value}`);
+        else if (r.kind === "fallback") detailLines.push(`fallback:${r.key}=${r.value}:${r.note}`);
+        else if (r.kind === "avoid") detailLines.push(`avoid:${r.key}`);
+        else if (r.kind === "unsupported") detailLines.push(`unsupported:${r.key}`);
+        else if (r.kind === "invalid") detailLines.push(`invalid:${r.key}`);
+        else if (r.kind === "rejected") detailLines.push(`rejected:${r.key}=${r.value}`);
+      }
+      await writeTcpResolution(detailLines);
+    } catch (e) { /* la resolución detallada es informativa */ }
+
     if (failed.length === 0) {
       showToast(persistFailed
         ? t("toastTcpNotSaved", { name: presetName })
@@ -536,6 +672,7 @@ async function applyTcp(preset, cardEl) {
     }
 
     await syncAdvancedFromSysctl(appliedMap);
+    renderTcpResolution(resolution);
   } catch (e) {
     showToast(t("toastTcpError"));
   }
@@ -1115,3 +1252,4 @@ showTab("dashboard");
 loadDnsProfiles();
 loadTcpPresets().then(() => refreshDashboard());
 loadTcpCategories();
+loadTcpResolution();
