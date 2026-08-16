@@ -3,6 +3,11 @@
     "id": "balanced",
     "name": { "es": "Balanceado", "en": "Balanced" },
     "icon": "⚖️",
+    "goal": {
+      "es": "Valores seguros por defecto sin arriesgar la red.",
+      "en": "Safe defaults without risking the network."
+    },
+    "avoid": [],
     "congestion_control": { "preferred": "cubic", "fallback": "cubic" },
     "sysctl": {
       "net.ipv4.tcp_window_scaling": "1",
@@ -13,6 +18,11 @@
     "id": "aggressive",
     "name": { "es": "Agresivo", "en": "Aggressive" },
     "icon": "🚀",
+    "goal": {
+      "es": "Máximo throughput cuando el kernel lo permite.",
+      "en": "Maximum throughput when the kernel allows it."
+    },
+    "avoid": ["net.ipv4.tcp_ecn", "net.ipv4.tcp_mtu_probing", "net.ipv4.tcp_retries1"],
     "congestion_control": { "preferred": "bbr", "fallback": "cubic" },
     "sysctl": {
       "net.ipv4.tcp_window_scaling": "1",
@@ -24,6 +34,11 @@
     "id": "conservative",
     "name": { "es": "Conservador", "en": "Conservative" },
     "icon": "🛡️",
+    "goal": {
+      "es": "Toca lo mínimo indispensable; máxima compatibilidad.",
+      "en": "Touches the minimum; maximum compatibility."
+    },
+    "avoid": ["net.ipv4.tcp_ecn", "net.ipv4.tcp_mtu_probing", "net.ipv4.tcp_retries1", "net.ipv4.tcp_fastopen"],
     "congestion_control": { "preferred": "cubic", "fallback": "cubic" },
     "sysctl": {
       "net.ipv4.tcp_window_scaling": "1",
@@ -34,18 +49,16 @@
     "id": "gaming",
     "name": { "es": "Gaming", "en": "Gaming" },
     "icon": "🎮",
-    "description": {
-      "es": "Prioriza baja latencia y estabilidad para juegos online.",
-      "en": "Prioritizes low latency and stability for online gaming."
+    "goal": {
+      "es": "Latencia baja y conexión estable para juegos online.",
+      "en": "Low latency and a stable connection for online gaming."
     },
+    "avoid": ["net.ipv4.tcp_ecn", "net.ipv4.tcp_mtu_probing", "net.ipv4.tcp_retries1", "net.ipv4.tcp_rmem", "net.ipv4.tcp_wmem"],
     "congestion_control": { "preferred": "bbr", "fallback": "cubic" },
     "sysctl": {
       "net.ipv4.tcp_window_scaling": "1",
       "net.ipv4.tcp_sack": "1",
-      "net.ipv4.tcp_fastopen": "3",
-      "net.ipv4.tcp_ecn": "1",
-      "net.ipv4.tcp_mtu_probing": "1",
-      "net.ipv4.tcp_retries1": "2"
+      "net.ipv4.tcp_fastopen": "3"
     }
   }
 ]

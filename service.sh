@@ -21,53 +21,55 @@ if [ -f "$STATE_DIR/dns.state" ]; then
   fi
 fi
 
+# tcp.state guarda la RESOLUCIÓN del preset: primera línea "preset=<id>" y
+# después las claves "sysctl.key=valor" que el kernel aceptó al aplicarlas.
+# Se reaplica línea a línea tal cual, sin re-resolver: el arranque reproduce
+# exactamente la decisión del WebUI. apply_sysctl valida cada clave/valor.
 if [ -f "$STATE_DIR/tcp.state" ]; then
-  PRESET=$(cat "$STATE_DIR/tcp.state")
-  AVAILABLE_CC=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null)
-
-  # Comprueba capacidades: usa el algoritmo preferido solo si el kernel lo
-  # ofrece, si no cae al fallback (normalmente cubic, casi siempre presente).
-  resolve_cc() {
-    PREFERRED="$1"
-    FALLBACK="$2"
-    case " $AVAILABLE_CC " in
-      *" $PREFERRED "*) echo "$PREFERRED" ;;
-      *" $FALLBACK "*) echo "$FALLBACK" ;;
-      *) echo "" ;;
+  if grep -q '^preset=' "$STATE_DIR/tcp.state"; then
+    while IFS='=' read -r KEY VALUE; do
+      [ -n "$KEY" ] || continue
+      [ "$KEY" = "preset" ] && continue
+      apply_sysctl "$KEY" "$VALUE"
+    done < "$STATE_DIR/tcp.state"
+  else
+    # Migración desde v2.1.1 (el archivo solo tenía el id del preset).
+    # Reaplica las claves seguras equivalentes y reescribe el formato nuevo
+    # para que el próximo arranque use la ruta normal. No se reaplican ECN,
+    # MTU probing ni retries bajos: son los tweaks retirados por riesgo.
+    PRESET=$(head -n 1 "$STATE_DIR/tcp.state" | tr -d '[:space:]')
+    case "$PRESET" in
+      balanced|conservative) PREF="cubic" ;;
+      aggressive|gaming) PREF="bbr" ;;
+      *) PREF="" ;;
     esac
-  }
-
-  case "$PRESET" in
-    balanced)
-      CC=$(resolve_cc cubic cubic)
-      [ -n "$CC" ] && apply_sysctl net.ipv4.tcp_congestion_control "$CC"
+    if [ -n "$PREF" ]; then
+      AVAILABLE_CC=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null)
+      ALLOWED_CC=$(cat /proc/sys/net/ipv4/tcp_allowed_congestion_control 2>/dev/null)
+      if [ -n "$ALLOWED_CC" ]; then
+        case " $ALLOWED_CC " in
+          *" $PREF "*) CC="$PREF" ;;
+          *) CC="cubic" ;;
+        esac
+      else
+        case " $AVAILABLE_CC " in
+          *" $PREF "*) CC="$PREF" ;;
+          *) CC="cubic" ;;
+        esac
+      fi
+      EXTRA=""
+      [ "$PRESET" = "aggressive" ] || [ "$PRESET" = "gaming" ] && EXTRA="net.ipv4.tcp_fastopen=3"
+      apply_sysctl net.ipv4.tcp_congestion_control "$CC"
       apply_sysctl net.ipv4.tcp_window_scaling 1
       apply_sysctl net.ipv4.tcp_sack 1
-      ;;
-    aggressive)
-      CC=$(resolve_cc bbr cubic)
-      [ -n "$CC" ] && apply_sysctl net.ipv4.tcp_congestion_control "$CC"
-      apply_sysctl net.ipv4.tcp_window_scaling 1
-      apply_sysctl net.ipv4.tcp_sack 1
-      apply_sysctl net.ipv4.tcp_fastopen 3
-      ;;
-    conservative)
-      CC=$(resolve_cc cubic cubic)
-      [ -n "$CC" ] && apply_sysctl net.ipv4.tcp_congestion_control "$CC"
-      apply_sysctl net.ipv4.tcp_window_scaling 1
-      apply_sysctl net.ipv4.tcp_sack 1
-      ;;
-    gaming)
-      CC=$(resolve_cc bbr cubic)
-      [ -n "$CC" ] && apply_sysctl net.ipv4.tcp_congestion_control "$CC"
-      apply_sysctl net.ipv4.tcp_window_scaling 1
-      apply_sysctl net.ipv4.tcp_sack 1
-      apply_sysctl net.ipv4.tcp_fastopen 3
-      apply_sysctl net.ipv4.tcp_ecn 1
-      apply_sysctl net.ipv4.tcp_mtu_probing 1
-      apply_sysctl net.ipv4.tcp_retries1 2
-      ;;
-  esac
+      [ -n "$EXTRA" ] && apply_sysctl "${EXTRA%%=*}" "${EXTRA#*=}"
+      printf 'preset=%s\n%s=%s\nnet.ipv4.tcp_window_scaling=1\nnet.ipv4.tcp_sack=1\n%s\n' \
+        "$PRESET" \
+        net.ipv4.tcp_congestion_control "$CC" \
+        "$EXTRA" > "$STATE_DIR/.tcp_state.tmp" && \
+        mv -f "$STATE_DIR/.tcp_state.tmp" "$STATE_DIR/tcp.state"
+    fi
+  fi
 fi
 
 # Reaplica las opciones avanzadas individuales (Rendimiento, Baja latencia,

@@ -144,6 +144,17 @@ async function atomicWriteState(entries) {
   }
 }
 
+// Escribe la resolución del preset (preset=<id> + claves resueltas) de forma
+// atómica en tcp.state, que service.sh reaplica en cada arranque.
+async function writeTcpState(lines) {
+  const quoted = lines.map((l) => `"${l}"`).join(" ");
+  const cmd =
+    `mkdir -p ${STATE_DIR} && ` +
+    `printf '%s\\n' ${quoted} > ${STATE_DIR}/.tcp_state.tmp && ` +
+    `mv -f ${STATE_DIR}/.tcp_state.tmp ${STATE_DIR}/tcp.state`;
+  await Bridge.exec(cmd);
+}
+
 function persistAdvancedState() {
   const entries = Object.entries(advancedState)
     .filter(([k, v]) => isValidSysctlKey(k) && isValidSysctlValue(v));
@@ -375,11 +386,12 @@ async function loadTcpPresets() {
   await restoreTcpSelection();
 }
 
-// Lee tcp.state y marca el preset activo.
+// Lee tcp.state y marca el preset activo. El archivo guarda la resolución:
+// primera línea "preset=<id>", seguida de las claves aplicadas.
 async function restoreTcpSelection() {
   try {
     const r = await Bridge.exec(`cat ${STATE_DIR}/tcp.state 2>/dev/null || true`);
-    const saved = r.stdout.trim();
+    const saved = extractPresetId(r.stdout);
     if (!saved) return;
     const target = document.querySelector(`#tcpList .card[data-preset="${saved}"]`);
     if (target) {
@@ -393,6 +405,16 @@ async function restoreTcpSelection() {
   } catch (e) { /* modo simulado / sin root */ }
 }
 
+// Extrae el id del preset de la primera línea "preset=<id>" de tcp.state.
+// Compatible con el formato viejo (v2.1.1, solo el id en una línea).
+// Devuelve "" si no hay ningún preset persistido.
+function extractPresetId(content) {
+  const text = String(content);
+  const line = text.split("\n").find((l) => l.startsWith("preset="));
+  if (line) return line.slice("preset=".length).trim();
+  return text.trim().split("\n")[0]?.trim() || "";
+}
+
 function markTcpSelected(cardEl) {
   document.querySelectorAll("#tcpList .card").forEach((c) => {
     c.classList.remove("selected");
@@ -402,12 +424,43 @@ function markTcpSelected(cardEl) {
   setPressed(cardEl, true);
 }
 
+// --- Capability Probe ---
+// Detecta qué puede hacer realmente el kernel y expone esa información al
+// resto del motor. La regla: "available" lista algoritmos compilados, pero
+// "allowed" restringe cuáles se pueden activar; solo la intersección importa.
+async function probeCapabilities() {
+  const readList = async (path) => {
+    try {
+      const r = await Bridge.exec(`cat ${path} 2>/dev/null || true`);
+      return r.stdout.trim().split(/\s+/).filter(Boolean);
+    } catch (e) { return []; }
+  };
+  const ccAvailable = await readList("/proc/sys/net/ipv4/tcp_available_congestion_control");
+  const ccAllowed = await readList("/proc/sys/net/ipv4/tcp_allowed_congestion_control");
+  const ccEffective = ccAllowed.length
+    ? ccAvailable.filter((a) => ccAllowed.includes(a))
+    : ccAvailable;
+  return { ccAvailable, ccAllowed, ccEffective };
+}
+
+// La lista "efectiva" (available ∩ allowed) es la que usan el selector de
+// congestión y la resolución de presets. Se mantiene detectadaAlgos por
+// compatibilidad con el render dinámico del selector.
 async function getAvailableCongestionAlgos() {
-  try {
-    const r = await Bridge.exec("cat /proc/sys/net/ipv4/tcp_available_congestion_control");
-    detectedAlgos = r.stdout.trim().split(/\s+/).filter(Boolean);
-  } catch (e) { /* modo simulado / sin root */ }
+  const cap = await probeCapabilities();
+  detectedAlgos = cap.ccEffective;
   return detectedAlgos;
+}
+
+// Verifica que una clave sysctl exista y sea legible antes de intentar
+// escribirla. Evita fallos silenciosos en kernels que no la implementan.
+async function sysctlKeyExists(key) {
+  try {
+    await Bridge.exec(`sysctl -n ${key} >/dev/null 2>&1`);
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 async function applyTcp(preset, cardEl) {
@@ -415,18 +468,22 @@ async function applyTcp(preset, cardEl) {
 
   const presetName = pick(preset.name);
 
-  const algos = await getAvailableCongestionAlgos();
+  const cap = await probeCapabilities();
   const cc = preset.congestion_control;
   let resolvedCC = null;
   if (cc) {
-    if (algos.length === 0 || algos.includes(cc.preferred)) resolvedCC = cc.preferred;
-    else if (algos.includes(cc.fallback)) resolvedCC = cc.fallback;
+    if (cap.ccEffective.length === 0 || cap.ccEffective.includes(cc.preferred)) resolvedCC = cc.preferred;
+    else if (cap.ccEffective.includes(cc.fallback)) resolvedCC = cc.fallback;
   }
 
   const targetMap = { ...preset.sysctl };
   if (resolvedCC && isValidSysctlValue(resolvedCC)) {
     targetMap["net.ipv4.tcp_congestion_control"] = resolvedCC;
   }
+
+  // Restricciones explícitas: el motor nunca aplica las claves de la denylist
+  // del preset, aunque estén presentes en su sysctl. Previene tweaks dañinos.
+  (preset.avoid || []).forEach((k) => { delete targetMap[k]; });
 
   const appliedMap = {};
   const failed = [];
@@ -441,6 +498,10 @@ async function applyTcp(preset, cardEl) {
         failed.push(key);
         continue;
       }
+      if (!(await sysctlKeyExists(key))) {
+        failed.push(key);
+        continue;
+      }
       try {
         await writeSysctl(key, override);
         const verify = await Bridge.exec(`sysctl -n ${key}`);
@@ -452,7 +513,14 @@ async function applyTcp(preset, cardEl) {
       }
     }
     try {
-      await Bridge.exec(`echo "${preset.id}" > ${STATE_DIR}/tcp.state`);
+      // Persiste la RESOLUCIÓN: el preset elegido y exactamente qué claves y
+      // valores aceptó el kernel. service.sh reaplica línea a línea este
+      // archivo, sin re-resolver, de modo que el boot reproduce la decisión.
+      const lines = [`preset=${preset.id}`];
+      for (const [key, value] of Object.entries(appliedMap)) {
+        if (isValidSysctlKey(key) && isValidSysctlValue(value)) lines.push(`${key}=${value}`);
+      }
+      await writeTcpState(lines);
     } catch (e) {
       persistFailed = true;
     }
@@ -774,8 +842,7 @@ async function loadTcpCategories() {
   optionsSchema = await res.json();
 
   try {
-    const algoRes = await Bridge.exec("cat /proc/sys/net/ipv4/tcp_available_congestion_control");
-    detectedAlgos = algoRes.stdout.trim().split(/\s+/).filter(Boolean);
+    await getAvailableCongestionAlgos();
   } catch (e) { /* kernel no disponible en modo simulado */ }
 
   globalContainer.innerHTML = "";
@@ -835,7 +902,7 @@ async function refreshDashboard() {
   } catch (e) { /* mantiene dashUnknown */ }
   try {
     const state = await Bridge.exec(`cat ${STATE_DIR}/tcp.state 2>/dev/null || true`);
-    const id = state.stdout.trim();
+    const id = extractPresetId(state.stdout);
     const preset = tcpPresets.find((x) => x.id === id);
     if (preset) {
       setStat("dashPresetValue", pick(preset.name));

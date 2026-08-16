@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] - 2026-08-16
+
+### Added
+- Capability probe: detects congestion control actually allowed by the kernel (available ∩ allowed) and checks each sysctl key exists before applying.
+- Presets now declare an explicit `avoid` denylist; the engine never applies those keys.
+
+### Changed
+- `tcp.state` now stores the resolved result (`preset=` + the exact keys/values the kernel accepted), and `service.sh` reapplies it line by line on boot without re-resolving.
+- Removed risky tweaks from the Gaming preset: ECN, MTU probing and low TCP retries1.
+- Automatic migration of the old `tcp.state` format on boot.
+
 ## [2.1.1] - 2026-08-15
 
 ### Added
