@@ -3,7 +3,7 @@
 # No requiere montajes ni sepolicy: solo extraer archivos y fijar permisos.
 MODDIR=${0%/*}
 
-ui_print "- Instalando NetBoost v2.5.1"
+ui_print "- Instalando NetBoost v2.5.2"
 
 # Los scripts del módulo deben ser ejecutables.
 chmod 0755 "$MODDIR/service.sh" "$MODDIR/uninstall.sh" "$MODDIR/backup.sh" 2>/dev/null

@@ -19,7 +19,7 @@ The interface runs inside the manager's own WebView — there is no local HTTP s
 
 ## Installation
 
-1. Download `NetBoost-v2.5.1.zip`.
+1. Download `NetBoost-v2.5.2.zip`.
 2. Install it from your manager: **Modules → Install from storage**.
 3. Reboot.
 4. Open the module from the modules list and tap the WebUI icon (⧉).
@@ -86,7 +86,7 @@ La interfaz se ejecuta dentro del propio WebView del manager — sin servidor HT
 
 ## Instalación
 
-1. Descarga `NetBoost-v2.5.1.zip`.
+1. Descarga `NetBoost-v2.5.2.zip`.
 2. Instálalo desde tu manager: **Módulos → Instalar desde almacenamiento**.
 3. Reinicia.
 4. Abre el módulo desde la lista de módulos y toca el icono de WebUI (⧉).

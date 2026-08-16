@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.5.1] - 2026-08-16
+## [2.5.2] - 2026-08-16
 
 ### Fixed
 - Applying a preset now takes full control of the congestion control: the preset's resolved algorithm always wins over a manual override left by the selector, and once the kernel accepts it the manual override is removed from the persisted advanced state. Before, a previously chosen algorithm from the selector could silently override the preset's congestion control (e.g. Balanced applying `cubic` but ending up with `reno`).
@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Resolution notes for "module loaded" and "algorithm enabled" are now highlighted in the accent color so they're distinguishable from skipped parameters.
-- Version references updated to v2.5.1 in the README and installer output.
+- Version references updated to v2.5.2 in the README and installer output.
 
 ### Removed
 - Dead code: unused icons (bolt, home, gauge, activity, pin, refresh), unused emoji mappings (⚡🌐🌙☀), unused i18n keys (`tcpHint`, `statusQuerying`), and unused CSS rules (`.tabs`/`.tab`, `.log-box`, `.btn-danger`, `.badge.on/.warn/.off`, `.mono`, `.toast.success/.warn/.error`, `--warn-soft`).
