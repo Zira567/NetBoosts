@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.0] - 2026-08-16
+
+### Fixed
+- Kernels where `tcp_available_congestion_control` lists all algorithms (built into the kernel, e.g. `reno bbr bbrplus cubic westwood highspeed htcp`) but `tcp_allowed_congestion_control` is restricted to a subset: the engine now auto-widens `tcp_allowed_congestion_control` to the full available list before selecting the algorithm. Presets and the selector no longer get stuck seeing only the allowed subset (the Balanced preset applying `cubic` falls back to `reno`). This works without any `tcp_*.ko` modules on the device.
+- `service.sh` repeats the same allowed-widening on boot so the choice survives a reboot.
+
+### Changed
+- The congestion control selector now shows everything the kernel *provides* (`tcp_available_congestion_control` + loadable `tcp_*.ko` modules), not just the currently allowed subset.
+- New resolution kind `enabled` in the transparency panel ("{{from}} enabled (allowed widened), using {{to}}").
+- When an algorithm is available but blocked by `allowed`, enabling it is a normal operation; module loading is still attempted for algorithms not present in `available` at all (e.g. GKI `tcp_bbr=m`).
+
 ## [2.4.0] - 2026-08-16
 
 ### Added
